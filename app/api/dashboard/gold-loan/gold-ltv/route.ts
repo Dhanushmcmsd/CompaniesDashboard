@@ -1,35 +1,33 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getDateRange } from "@/lib/gold-loan/period-utils";
-import type { Period } from "@/context/PeriodContext";
 
-export async function GET(req: NextRequest) {
-  const period = (req.nextUrl.searchParams.get("period") ?? "MTD") as Period;
-  const { from, to } = getDateRange(period);
-  const goldRate = parseFloat(process.env.GOLD_RATE_PER_GRAM ?? "9240");
-
+export async function GET() {
   try {
-    const loans = await prisma.goldLoan.findMany({
-      where: { updatedAt: { gte: from, lte: to }, status: { not: "CANCELLED" } },
-      select: { closingBalance: true, goldWeight: true, loanStatus: true },
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const snap = await prisma.goldLoanSnapshot.findFirst({
+      where: { company: "supra" },
+      orderBy: { createdAt: "desc" },
     });
 
-    const valid = loans.filter(l => (l.goldWeight ?? 0) > 0);
-    const ltvValues = valid.map(l => ((l.closingBalance ?? 0) / ((l.goldWeight ?? 0) * goldRate)) * 100);
-    const avgLTV = ltvValues.length ? ltvValues.reduce((a, b) => a + b, 0) / ltvValues.length : 0;
-    const avgLoanPerGram = valid.length ? valid.reduce((s, l) => s + ((l.closingBalance ?? 0) / (l.goldWeight ?? 1)), 0) / valid.length : 0;
-    const totalGoldWeight = valid.reduce((s, l) => s + (l.goldWeight ?? 0), 0);
-    const auctionCases = loans.filter(l => l.loanStatus === "AUCTION").length;
+    if (!snap) return NextResponse.json({ goldLtv: null });
 
     return NextResponse.json({
-      avgLTV: parseFloat(avgLTV.toFixed(2)),
-      goldRate,
-      avgLoanPerGram: parseFloat(avgLoanPerGram.toFixed(2)),
-      totalGoldWeight: parseFloat(totalGoldWeight.toFixed(2)),
-      auctionCases,
+      goldLtv: {
+        avgLTV:              snap.avgLTV,
+        avgPresentRate:      snap.avgPresentRate,
+        avgGoldValuePerLoan: snap.avgGoldValuePerLoan,
+        totalGoldWeight:     snap.totalGoldWeight,
+        avgGoldWeightPerLoan: snap.avgGoldWeightPerLoan,
+        auctionCases:        snap.auctionCases,
+        highLTVAccounts:     snap.highLTVAccounts,
+        goldValueMismatch:   snap.goldValueMismatch,
+      },
     });
-  } catch (err) {
-    console.error("[gold-ltv]", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }

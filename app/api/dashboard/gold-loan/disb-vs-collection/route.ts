@@ -1,26 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getDateRange } from '@/lib/gold-loan/period-utils';
-import type { Period } from '@/context/PeriodContext';
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
-export async function GET(req: NextRequest) {
-  const raw    = req.nextUrl.searchParams.get('period') ?? 'MTD';
-  const period = (['FTD', 'MTD', 'YTD'].includes(raw) ? raw : 'MTD') as Period;
-  const { from, to } = getDateRange(period);
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [balances, transactions] = await Promise.all([
-    prisma.goldLoanBalance.aggregate({
-      where:  { disbursementDate: { gte: from, lte: to } },
-      _sum:   { closingBalance: true },
-    }),
-    prisma.goldLoanTransaction.aggregate({
-      where:  { transactionDate: { gte: from, lte: to } },
-      _sum:   { totalAmountReceived: true },
-    }),
-  ]);
+    const snap = await prisma.goldLoanSnapshot.findFirst({
+      where: { company: "supra" },
+      orderBy: { createdAt: "desc" },
+    });
 
-  return NextResponse.json({
-    disbursement: Math.round((balances._sum.closingBalance ?? 0) * 100) / 100,
-    collection:   Math.round((transactions._sum.totalAmountReceived ?? 0) * 100) / 100,
-  });
+    if (!snap) return NextResponse.json({ data: null });
+
+    return NextResponse.json({
+      data: {
+        mtdDisbursements:  snap.mtdDisbursements,
+        ytdDisbursements:  snap.ytdDisbursements,
+        overdueCollection: snap.overdueCollection,
+        totalOverdue:      snap.totalOverdue,
+      },
+    });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
 }

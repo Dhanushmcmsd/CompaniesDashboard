@@ -1,35 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getDateRange } from '@/lib/gold-loan/period-utils';
-import type { Period } from '@/context/PeriodContext';
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
-export async function GET(req: NextRequest) {
-  const raw    = req.nextUrl.searchParams.get('period') ?? 'MTD';
-  const period = (['FTD', 'MTD', 'YTD'].includes(raw) ? raw : 'MTD') as Period;
-  const { from, to } = getDateRange(period);
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const rows = await prisma.goldLoanBalance.findMany({
-    where:  { disbursementDate: { gte: from, lte: to } },
-    select: { disbursementDate: true, closingBalance: true },
-  });
+    // Return last 10 snapshots as a trend series
+    const snaps = await prisma.goldLoanSnapshot.findMany({
+      where:   { company: "supra" },
+      orderBy: { createdAt: "asc" },
+      take:    10,
+      select:  { reportDate: true, newDisbursements: true, mtdDisbursements: true, createdAt: true },
+    });
 
-  // Aggregate by bucket: FTD→hours (show as one), MTD→day, YTD→month
-  const buckets = new Map<string, number>();
+    const trend = snaps.map((s) => ({
+      date:  (s.reportDate ?? s.createdAt).toISOString().slice(0, 10),
+      ftd:   s.newDisbursements,
+      mtd:   s.mtdDisbursements,
+    }));
 
-  for (const row of rows) {
-    if (!row.disbursementDate) continue;
-    let key: string;
-    if (period === 'YTD') {
-      key = row.disbursementDate.toISOString().slice(0, 7); // YYYY-MM
-    } else {
-      key = row.disbursementDate.toISOString().slice(0, 10); // YYYY-MM-DD
-    }
-    buckets.set(key, (buckets.get(key) ?? 0) + (row.closingBalance ?? 0));
+    return NextResponse.json({ trend });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
-
-  const data = Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([label, amount]) => ({ label, amount: Math.round(amount * 100) / 100 }));
-
-  return NextResponse.json({ data });
 }

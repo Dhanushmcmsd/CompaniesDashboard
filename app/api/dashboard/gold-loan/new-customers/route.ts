@@ -1,62 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getDateRange } from "@/lib/gold-loan/period-utils";
-import type { Period } from "@/context/PeriodContext";
 
-export async function GET(req: NextRequest) {
-  const period = (req.nextUrl.searchParams.get("period") ?? "MTD") as Period;
-  const { from, to } = getDateRange(period);
-
+export async function GET() {
   try {
-    // All loans disbursed in period (first-time customers = new)
-    const loans = await prisma.goldLoan.findMany({
-      where: { disbursementDate: { gte: from, lte: to } },
-      select: {
-        customerId:         true,
-        branch:             true,
-        disbursementAmount: true,
-      },
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const snap = await prisma.goldLoanSnapshot.findFirst({
+      where: { company: "supra" },
+      orderBy: { createdAt: "desc" },
     });
 
-    // Identify customers who have NO loan before 'from' (i.e. truly new)
-    const customerIds = [...new Set(loans.map(l => l.customerId))];
-    const existingBefore = await prisma.goldLoan.findMany({
-      where: {
-        customerId: { in: customerIds },
-        disbursementDate: { lt: from },
-      },
-      select: { customerId: true },
-    });
-    const existingSet = new Set(existingBefore.map(e => e.customerId));
+    if (!snap) return NextResponse.json({ newCustomers: 0, totalCustomers: 0 });
 
-    const newLoans = loans.filter(l => !existingSet.has(l.customerId));
-    const newCustIds = new Set(newLoans.map(l => l.customerId));
-    const count = newCustIds.size;
-
-    const disbursementAmount = newLoans.reduce((s, l) => s + (l.disbursementAmount ?? 0), 0) / 1e7;
-    const avgTicketSize = count > 0 ? (disbursementAmount * 100) / count : 0; // Cr → L
-
-    // Branch-wise count (unique new customers per branch)
-    const branchMap = new Map<string, Set<string>>();
-    for (const l of newLoans) {
-      if (existingSet.has(l.customerId)) continue;
-      const b = l.branch ?? "Unknown";
-      if (!branchMap.has(b)) branchMap.set(b, new Set());
-      branchMap.get(b)!.add(l.customerId);
-    }
-    const byBranch = Array.from(branchMap.entries()).map(([branch, set]) => ({
-      branch,
-      count: set.size,
-    }));
-
+    // New customers = accounts with disbursement today (FTD)
+    // Approximated from newDisbursements > 0 indicator in snapshot
     return NextResponse.json({
-      count,
-      disbursementAmount: parseFloat(disbursementAmount.toFixed(2)),
-      avgTicketSize: parseFloat(avgTicketSize.toFixed(2)),
-      byBranch,
+      totalCustomers: snap.totalCustomers,
+      totalAccounts:  snap.totalAccounts,
+      // Row-level new customer detail requires balance file re-upload
+      newCustomers:   snap.newDisbursements > 0 ? "See FTD disbursement" : 0,
+      mtdDisbursements: snap.mtdDisbursements,
     });
-  } catch (err) {
-    console.error("[new-customers]", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }

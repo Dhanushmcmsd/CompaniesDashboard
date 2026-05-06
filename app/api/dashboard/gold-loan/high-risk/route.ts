@@ -1,44 +1,29 @@
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  // Gold rate from env — fallback to 9240 ₹/g if not set
-  const goldRate = parseFloat(process.env.GOLD_RATE_PER_GRAM ?? "9240");
-
   try {
-    // Fetch all active loans with gold collateral data
-    const loans = await prisma.goldLoan.findMany({
-      where: {
-        status: { not: "CANCELLED" },
-        loanStatus: { not: "CLOSED" },
-        goldWeight: { gt: 0 },
-      },
-      select: {
-        customerId:     true,
-        customerName:   true,
-        branch:         true,
-        closingBalance: true,  // loan outstanding (₹ paise or direct ₹ — see note)
-        goldWeight:     true,  // grams
-      },
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const snap = await prisma.goldLoanSnapshot.findFirst({
+      where: { company: "supra" },
+      orderBy: { createdAt: "desc" },
     });
 
-    // ── Filter: outstanding > gold_weight × gold_rate ──────────────────────
-    const highRisk = loans
-      .map(l => ({
-        customerId:       l.customerId,
-        name:             l.customerName ?? "—",
-        branch:           l.branch ?? "Unknown",
-        outstanding:      l.closingBalance ?? 0,
-        goldWeight:       l.goldWeight ?? 0,
-        currentGoldValue: (l.goldWeight ?? 0) * goldRate,
-        excessRisk:       (l.closingBalance ?? 0) - (l.goldWeight ?? 0) * goldRate,
-      }))
-      .filter(c => c.excessRisk > 0)
-      .sort((a, b) => b.excessRisk - a.excessRisk); // highest risk first
+    if (!snap) return NextResponse.json({ highRisk: null, goldRate: 0, accounts: [] });
 
-    return NextResponse.json({ goldRate, customers: highRisk });
-  } catch (err) {
-    console.error("[high-risk]", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({
+      goldRate:         snap.avgPresentRate,
+      highRiskCount:    snap.goldValueMismatch,
+      highLTVCount:     snap.highLTVAccounts,
+      // Row-level high-risk detail not available from snapshot (by design)
+      // Management sees counts + can request full list from employee
+      accounts: [],
+    });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }
