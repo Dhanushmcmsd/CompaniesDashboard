@@ -4,13 +4,14 @@ import { cookies } from "next/headers";
 
 const ALLOWED_ROLES = ["admin", "supra_employee"];
 
-function getRole(): string | null {
-  const cookieStore = cookies();
-  return cookieStore.get("role")?.value ?? null;
-}
+export default async function GoldLoanLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const cookieStore = await cookies();
+  const role = cookieStore.get("role")?.value ?? null;
 
-export default function GoldLoanLayout({ children }: { children: React.ReactNode }) {
-  const role = getRole();
   if (!role || !ALLOWED_ROLES.includes(role)) {
     redirect("/dashboard?error=unauthorized");
   }
