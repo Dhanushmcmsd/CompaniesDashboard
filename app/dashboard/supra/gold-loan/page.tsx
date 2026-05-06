@@ -2,6 +2,7 @@
 
 import PeriodSelector from "@/components/gold-loan/PeriodSelector";
 import ExecutiveSummaryGrid from "@/components/gold-loan/ExecutiveSummaryGrid";
+import DisbursementSection from "@/components/gold-loan/DisbursementSection";
 
 function today(): string {
   return new Date().toLocaleDateString("en-IN", {
@@ -14,9 +15,7 @@ function today(): string {
 export default function GoldLoanPage() {
   return (
     <div>
-      {/* ════════════════════════════════════════
-          HEADER
-      ════════════════════════════════════════ */}
+      {/* ══ HEADER ══ */}
       <header className="bg-[#0f172a] px-6 py-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -27,58 +26,43 @@ export default function GoldLoanPage() {
               As on {today()}&nbsp;&nbsp;|&nbsp;&nbsp;All figures in ₹ Crore unless noted
             </p>
           </div>
-          <div className="mt-1">
-            <PeriodSelector />
-          </div>
+          <div className="mt-1"><PeriodSelector /></div>
         </div>
       </header>
 
-      {/* ════════════════════════════════════════
-          MAIN CONTENT
-      ════════════════════════════════════════ */}
       <main className="px-6 py-6 space-y-6">
 
-        {/* ── Section 1: Executive Summary ── */}
+        {/* §1 Executive Summary */}
         <section id="executive-summary">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            Executive Summary
-          </h2>
+          <SectionHeading>Executive Summary</SectionHeading>
           <ExecutiveSummaryGrid />
         </section>
 
-        {/* ── Section 2: Disbursement & Collection ── */}
+        {/* §2 Disbursement & Collection */}
         <section id="disbursement-collection">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            Disbursement &amp; Collection
-          </h2>
-          <Placeholder label="Disbursement vs Target Bar Chart" tall />
+          <SectionHeading>Disbursement &amp; Collection</SectionHeading>
+          <DisbursementSection />
         </section>
 
-        {/* ── Section 3: Overdue & Collection Overview ── */}
+        {/* §3 Overdue & Collection Overview */}
         <section id="overdue-collection">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            Overdue &amp; Collection Overview
-          </h2>
+          <SectionHeading>Overdue &amp; Collection Overview</SectionHeading>
           <Placeholder label="Overdue Bucket Chart + Collection Efficiency" tall />
         </section>
 
-        {/* ── Section 4: New Customers ── */}
+        {/* §4 New Customers */}
         <section id="new-customers">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            New Customers
-          </h2>
+          <SectionHeading>New Customers</SectionHeading>
           <Placeholder label="New Customer Acquisition KPIs" />
         </section>
 
-        {/* ── Section 5: Closed Gold Loan — Grams Released ── */}
+        {/* §5 Closed Gold Loan — Grams Released */}
         <section id="closed-gold-loan">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            Closed Gold Loan &mdash; Grams Released
-          </h2>
+          <SectionHeading>Closed Gold Loan &mdash; Grams Released</SectionHeading>
           <Placeholder label="Closed Loan / Gold Released Summary" />
         </section>
 
-        {/* ── Section 6: High Risk Table ── */}
+        {/* §6 High Risk Table */}
         <section id="high-risk">
           <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-red-400 pb-1 flex items-center gap-2">
             <span>⚠</span> High Risk Table
@@ -86,31 +70,25 @@ export default function GoldLoanPage() {
           <Placeholder label="High Risk Customer Table" tall />
         </section>
 
-        {/* ── Section 7: NPA & Risk Monitoring ── */}
+        {/* §7 NPA & Risk Monitoring */}
         <section id="npa-risk">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            NPA &amp; Risk Monitoring
-          </h2>
+          <SectionHeading>NPA &amp; Risk Monitoring</SectionHeading>
           <Placeholder label="NPA Trend Chart + Bucket Table" tall />
         </section>
 
-        {/* ── Section 8: Gold Security & LTV ── */}
+        {/* §8 Gold Security & LTV */}
         <section id="gold-ltv">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            Gold Security &amp; LTV
-          </h2>
+          <SectionHeading>Gold Security &amp; LTV</SectionHeading>
           <Placeholder label="Gold Weight Pledged / LTV Distribution" tall />
         </section>
 
-        {/* ── Section 9: Branch Performance ── */}
+        {/* §9 Branch Performance */}
         <section id="branch-performance">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
-            Branch Performance
-          </h2>
+          <SectionHeading>Branch Performance</SectionHeading>
           <Placeholder label="Branch-wise AUM / Disbursement / NPA Table" tall />
         </section>
 
-        {/* ── Section 10: Alerts & Exceptions ── */}
+        {/* §10 Alerts & Exceptions */}
         <section id="alerts-exceptions">
           <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-orange-400 pb-1">
             Alerts &amp; Exceptions
@@ -123,13 +101,17 @@ export default function GoldLoanPage() {
   );
 }
 
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
+      {children}
+    </h2>
+  );
+}
+
 function Placeholder({ label, tall }: { label: string; tall?: boolean }) {
   return (
-    <div
-      className={`bg-white rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-sm ${
-        tall ? "h-48" : "h-20"
-      }`}
-    >
+    <div className={`bg-white rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-sm ${tall ? "h-48" : "h-20"}`}>
       {label}
     </div>
   );
