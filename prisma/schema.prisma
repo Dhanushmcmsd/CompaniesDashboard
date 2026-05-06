@@ -17,22 +17,64 @@ model GoldLoanBalance {
   id                String    @id @default(cuid())
   loanAccountNumber String    @unique
   customerId        String?
+  customerName      String?
   branchName        String?
+  branchCode        String?
   branchState       String?
   branchRegion      String?
   schemeName        String?
+  schemeCode        String?
+  inventoryNo       String?
   disbursementDate  DateTime?
+  inventoryDate     DateTime?
+  intCollectedUpto  DateTime?
   maturityDate      DateTime?
   closureDate       DateTime?
   closureReason     String?
+  referenceNo       String?
+  fullyReceived     String?
+  loanPeriodType    String?
+  noticeLetter      String?
+  isOnline          String?
+  isLocked          String?
+  lockedBy          String?
+  mktExecCode       String?
+  mktExec           String?
+  relExecCode       String?
+  relExec           String?
+  collExecCode      String?
+  collExec          String?
+  renewedFrom       String?
+  uploadBatchId     String?
+  reportDate        DateTime?
+  openingBalance    Float?
+  principalDr       Float?
   closingBalance    Float?
+  disbursedAmount   Float?
+  totalInterestDue  Float?
   totalOutstanding  Float?
   goldWeight        Float?
+  grossWt           Float?
+  deductions        Float?
   goldPurity        Float?
   interestRate      Float?
   presentRate       Float?
   dpd               Int?
+  interestRcvd      Float?
+  interestRcvDuring Float?
+  otherChargesDue   Float?
+  partialPrinRcvd   Float?
+  balPrinRcvd       Float?
+  baseInterestDue   Float?
+  other1Due         Float?
+  other2Due         Float?
+  other3Due         Float?
+  loanPeriod        Int?
+  loanAvailedDays   Int?
+  daysPostIntr      Int?
+  balDaysToMature   Int?
   principalCr       Float?
+  discountAmt       Float?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -48,6 +90,7 @@ model GoldLoanTransaction {
   transactionDate      DateTime
   principalReceived    Float?
   interestReceived     Float?
+  principalInterestReceived Float?
   otherCharges         Float?
   totalAmountReceived  Float?
   createdAt            DateTime @default(now())
@@ -56,6 +99,23 @@ model GoldLoanTransaction {
   @@index([loanAccountNumber])
   @@index([transactionDate])
   @@map("gold_loan_transaction")
+}
+
+model UploadBatch {
+  id           String   @id @default(cuid())
+  company      String
+  portfolio    String
+  fileType     String
+  originalName String
+  reportDate   DateTime?
+  uploadedBy   String
+  uploadedAt   DateTime @default(now())
+  rowCount     Int      @default(0)
+  inserted     Int      @default(0)
+  updated      Int      @default(0)
+  errors       Json?
+
+  @@map("upload_batches")
 }
 
 enum Role {

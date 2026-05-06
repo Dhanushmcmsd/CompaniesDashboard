@@ -1,180 +1,143 @@
-import { NextRequest, NextResponse } from 'next/server';
-import * as XLSX from 'xlsx';
-import { PrismaClient } from '@prisma/client';
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { parseGoldLoanExcel } from "@/lib/gold-loan/excel-parser";
 
-const prisma = new PrismaClient();
-
-function normalizeHeader(h: string): string {
-  return h.toString().trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
 }
 
-function parseSheet<T>(buffer: Buffer, columnMap: Record<string, string>): T[] {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const raw: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
-
-  return raw.map((row) => {
-    const mapped: Record<string, unknown> = {};
-    for (const [rawKey, value] of Object.entries(row)) {
-      const norm = normalizeHeader(rawKey);
-      if (columnMap[norm]) {
-        mapped[columnMap[norm]] = value;
-      }
-    }
-    return mapped as T;
-  });
+function toDate(v: unknown): Date | null {
+  return v instanceof Date ? v : null;
 }
 
-const LOAN_BALANCE_MAP: Record<string, string> = {
-  loan_account_number: 'loanAccountNumber',
-  customer_id: 'customerId',
-  branch_name: 'branchName',
-  disbursement_date: 'disbursementDate',
-  closing_balance: 'closingBalance',
-  gold_weight: 'goldWeight',
-  interest_rate: 'interestRate',
-  dpd: 'dpd',
-  principal_cr: 'principalCr',
-};
+export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !["EMPLOYEE", "ADMIN"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-const TRANSACTION_MAP: Record<string, string> = {
-  loan_account_number: 'loanAccountNumber',
-  transaction_date: 'transactionDate',
-  principal_received: 'principalReceived',
-  interest_received: 'interestReceived',
-  other_charges: 'otherCharges',
-  total_amount_received: 'totalAmountReceived',
-};
+  const formData = await req.formData();
+  const multi = formData.getAll("files[]").filter((f): f is File => f instanceof File);
+  const singles = ["balanceFile", "transactionFile"].map((k) => formData.get(k)).filter((f): f is File => f instanceof File);
+  const files = multi.length ? multi : singles;
 
-interface LoanBalanceRow {
-  loanAccountNumber?: string;
-  customerId?: string;
-  branchName?: string;
-  disbursementDate?: Date | string | null;
-  closingBalance?: number | null;
-  goldWeight?: number | null;
-  interestRate?: number | null;
-  dpd?: number | null;
-  principalCr?: number | null;
-}
+  if (!files.length) {
+    return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
+  }
 
-interface TransactionRow {
-  loanAccountNumber?: string;
-  transactionDate?: Date | string | null;
-  principalReceived?: number | null;
-  interestReceived?: number | null;
-  otherCharges?: number | null;
-  totalAmountReceived?: number | null;
-}
+  const results: Array<{ fileName: string; fileType: string; reportDate: string | null; inserted: number; updated: number; errors: string[]; rowCount: number }> = [];
+  let totalInserted = 0;
+  let totalUpdated = 0;
 
-export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData();
-    const loanFile = formData.get('loanBalance') as File | null;
-    const txnFile = formData.get('transactionStatement') as File | null;
+  for (const file of files) {
+    const parsed = parseGoldLoanExcel(await file.arrayBuffer());
+    const errors = [...parsed.errors];
 
-    if (!loanFile || !txnFile) {
-      return NextResponse.json({ error: 'Both files are required.' }, { status: 400 });
+    if (parsed.fileType === "unknown") {
+      results.push({ fileName: file.name, fileType: "unknown", reportDate: null, inserted: 0, updated: 0, errors, rowCount: 0 });
+      continue;
     }
 
-    const loanBuffer = Buffer.from(await loanFile.arrayBuffer());
-    const txnBuffer = Buffer.from(await txnFile.arrayBuffer());
-
-    const loanRows = parseSheet<LoanBalanceRow>(loanBuffer, LOAN_BALANCE_MAP);
-    const txnRows = parseSheet<TransactionRow>(txnBuffer, TRANSACTION_MAP);
+    const batch = await prisma.uploadBatch.create({
+      data: {
+        company: "supra",
+        portfolio: "gold-loan",
+        fileType: parsed.fileType,
+        originalName: file.name,
+        reportDate: parsed.reportDate,
+        uploadedBy: session.user.email,
+        rowCount: parsed.rowCount,
+      },
+    });
 
     let inserted = 0;
     let updated = 0;
-    const errors: string[] = [];
 
-    // Upsert Loan Balance rows
-    for (const row of loanRows) {
-      if (!row.loanAccountNumber) {
-        errors.push(`Loan Balance: Row missing loanAccountNumber — skipped`);
-        continue;
-      }
-      try {
-        const existing = await prisma.goldLoanBalance.findUnique({
-          where: { loanAccountNumber: row.loanAccountNumber },
-        });
-
-        const payload = {
-          customerId: row.customerId ?? null,
-          branchName: row.branchName ?? null,
-          disbursementDate: row.disbursementDate ? new Date(row.disbursementDate) : null,
-          closingBalance: row.closingBalance != null ? Number(row.closingBalance) : null,
-          goldWeight: row.goldWeight != null ? Number(row.goldWeight) : null,
-          interestRate: row.interestRate != null ? Number(row.interestRate) : null,
-          dpd: row.dpd != null ? Number(row.dpd) : null,
-          principalCr: row.principalCr != null ? Number(row.principalCr) : null,
-        };
-
-        if (existing) {
-          await prisma.goldLoanBalance.update({
-            where: { loanAccountNumber: row.loanAccountNumber },
-            data: payload,
-          });
-          updated++;
-        } else {
-          await prisma.goldLoanBalance.create({
-            data: { loanAccountNumber: row.loanAccountNumber, ...payload },
-          });
-          inserted++;
+    if (parsed.fileType === "balance") {
+      for (const pack of chunk(parsed.rows, 500)) {
+        for (const r of pack) {
+          const loanAccountNumber = String(r.loanAccountNumber ?? "").trim();
+          if (!loanAccountNumber) {
+            errors.push("Missing loanAccountNumber row skipped");
+            continue;
+          }
+          try {
+            const existing = await prisma.goldLoanBalance.findUnique({ where: { loanAccountNumber } });
+            const data = {
+              ...r,
+              loanAccountNumber,
+              uploadBatchId: batch.id,
+              reportDate: parsed.reportDate,
+            };
+            await prisma.goldLoanBalance.upsert({
+              where: { loanAccountNumber },
+              create: data,
+              update: data,
+            });
+            if (existing) updated += 1; else inserted += 1;
+          } catch (e) {
+            errors.push(`Balance upsert failed for ${loanAccountNumber}: ${(e as Error).message}`);
+          }
         }
-      } catch (e) {
-        errors.push(`Loan Balance [${row.loanAccountNumber}]: ${(e as Error).message}`);
       }
     }
 
-    // Upsert Transaction rows
-    for (const row of txnRows) {
-      if (!row.loanAccountNumber || !row.transactionDate) {
-        errors.push(`Transaction: Row missing loanAccountNumber or transactionDate — skipped`);
-        continue;
-      }
-      try {
-        const txnDate = new Date(row.transactionDate);
-        const existing = await prisma.goldLoanTransaction.findFirst({
-          where: {
-            loanAccountNumber: row.loanAccountNumber,
-            transactionDate: txnDate,
-          },
-        });
+    if (parsed.fileType === "transaction" || parsed.fileType === "interest-extract") {
+      const rows = parsed.rows.filter((r) => r.loanAccountNumber && r.transactionDate);
+      const accountNums = Array.from(new Set(rows.map((r) => String(r.loanAccountNumber))));
+      const dates = rows.map((r) => toDate(r.transactionDate)).filter((d): d is Date => Boolean(d));
+      const minDate = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null;
+      const maxDate = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
 
-        const payload = {
-          principalReceived: row.principalReceived != null ? Number(row.principalReceived) : null,
-          interestReceived: row.interestReceived != null ? Number(row.interestReceived) : null,
-          otherCharges: row.otherCharges != null ? Number(row.otherCharges) : null,
-          totalAmountReceived: row.totalAmountReceived != null ? Number(row.totalAmountReceived) : null,
-        };
-
-        if (existing) {
-          await prisma.goldLoanTransaction.update({
-            where: { id: existing.id },
-            data: payload,
-          });
-          updated++;
-        } else {
-          await prisma.goldLoanTransaction.create({
-            data: {
-              loanAccountNumber: row.loanAccountNumber,
-              transactionDate: txnDate,
-              ...payload,
+      await prisma.$transaction(async (tx) => {
+        if (accountNums.length && minDate && maxDate) {
+          await tx.goldLoanTransaction.deleteMany({
+            where: {
+              loanAccountNumber: { in: accountNums },
+              transactionDate: { gte: minDate, lte: maxDate },
             },
           });
-          inserted++;
         }
-      } catch (e) {
-        errors.push(`Transaction [${row.loanAccountNumber}]: ${(e as Error).message}`);
-      }
+
+        for (const pack of chunk(rows, 500)) {
+          const createData = pack.map((r) => ({
+            loanAccountNumber: String(r.loanAccountNumber),
+            transactionDate: r.transactionDate as Date,
+            principalReceived: (r.principalReceived as number | null) ?? null,
+            interestReceived: (r.interestReceived as number | null) ?? null,
+            principalInterestReceived: (r.principalInterestReceived as number | null) ?? null,
+            otherCharges: (r.otherCharges as number | null) ?? null,
+            totalAmountReceived: (r.totalAmountReceived as number | null) ?? null,
+          }));
+          if (createData.length) {
+            await tx.goldLoanTransaction.createMany({ data: createData });
+            inserted += createData.length;
+          }
+        }
+      });
     }
 
-    return NextResponse.json({ inserted, updated, errors });
-  } catch (err) {
-    console.error('[gold-loan upload error]', err);
-    return NextResponse.json({ error: 'Internal server error during upload.' }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
+    await prisma.uploadBatch.update({
+      where: { id: batch.id },
+      data: { inserted, updated, errors },
+    });
+
+    totalInserted += inserted;
+    totalUpdated += updated;
+    results.push({
+      fileName: file.name,
+      fileType: parsed.fileType,
+      reportDate: parsed.reportDate ? parsed.reportDate.toISOString() : null,
+      inserted,
+      updated,
+      errors,
+      rowCount: parsed.rowCount,
+    });
   }
+
+  return NextResponse.json({ results, totalInserted, totalUpdated });
 }
