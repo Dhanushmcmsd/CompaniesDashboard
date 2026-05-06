@@ -1,179 +1,73 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePeriod } from "@/context/PeriodContext";
 
-interface HighRiskCustomer {
-  customerId: string;
-  name: string;
-  branch: string;
-  outstanding: number;       // ₹
-  goldWeight: number;        // g
-  currentGoldValue: number;  // ₹
-  excessRisk: number;        // outstanding − goldValue  (positive = under-collateralised)
-}
-
-interface HighRiskResponse {
+interface HighRiskData {
   goldRate: number;
-  customers: HighRiskCustomer[];
+  highRiskCount: number;
+  highLTVCount: number;
+  accounts: unknown[];
 }
 
-// ── Formatters ──────────────────────────────────────────────────────────────
-function fmtINR(n: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(n);
+function fmt0(n: unknown) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "\u2014";
+  return num.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
-function fmtG(n: number) {
-  return n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " g";
-}
-
-// ── Skeleton ─────────────────────────────────────────────────────────────────
-function Skeleton() {
-  return (
-    <div className="animate-pulse space-y-2">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className="h-10 bg-red-50 rounded" />
-      ))}
-    </div>
-  );
-}
-
-// ── Main Component ───────────────────────────────────────────────────────────
 export default function HighRiskTable() {
-  const [data, setData]       = useState<HighRiskResponse | null>(null);
+  const { period } = usePeriod();
+  const [data, setData]       = useState<HighRiskData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
-  // No period dependency — always reflects current state
   useEffect(() => {
-    fetch("/api/dashboard/gold-loan/high-risk")
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: HighRiskResponse) => { setData(d); setLoading(false); })
+    setLoading(true); setError(null);
+    fetch(`/api/dashboard/gold-loan/high-risk?period=${period}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d) => { setData(d); setLoading(false); })
       .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, []);
+  }, [period]);
 
-  const customers = data?.customers ?? [];
-  const goldRate  = data?.goldRate ?? 0;
+  if (loading) return <div className="h-32 bg-gray-100 rounded-xl animate-pulse" />;
+  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load high-risk data: {error}</div>;
+
+  const goldRate     = data?.goldRate     ?? 0;
+  const highRiskCount = data?.highRiskCount ?? 0;
+  const highLTVCount  = data?.highLTVCount  ?? 0;
 
   return (
-    <div className="rounded-xl overflow-hidden border border-red-300 shadow-md">
-
-      {/* ── Alert Header Bar ─────────────────────────────────────────────── */}
-      <div className="bg-red-700 px-5 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <p className="text-white font-bold text-sm">
-              ⚠&nbsp; High Risk — Outstanding Exceeds Current Gold Value
-            </p>
-            <p className="text-red-200 text-xs mt-0.5">
-              Customers where loan outstanding &gt; current gold collateral value
-              &nbsp;|&nbsp; Gold rate:&nbsp;
-              <span className="font-semibold text-white">
-                ₹{goldRate.toLocaleString("en-IN")}/g
-              </span>
-            </p>
-          </div>
-          <span className="bg-red-900 text-red-100 text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap">
-            Requires Immediate Management Action
-          </span>
-        </div>
+    <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+        Customers where loan outstanding &gt; current gold collateral value&nbsp;&nbsp;|
+        &nbsp;Gold rate: <strong>\u20b9{fmt0(goldRate)}/g</strong>
       </div>
 
-      {/* ── Row Count Banner ─────────────────────────────────────────────── */}
-      <div className="bg-red-50 border-b border-red-200 px-5 py-2">
-        {loading ? (
-          <div className="h-3 w-40 bg-red-200 rounded animate-pulse" />
-        ) : (
-          <p className="text-xs font-semibold text-red-700">
-            {customers.length === 0
-              ? "✅ No high-risk customers flagged"
-              : `${customers.length} customer${customers.length > 1 ? "s" : ""} flagged`}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={`rounded-xl border p-4 shadow-sm ${ highRiskCount > 0 ? "border-red-200 bg-red-50" : "border-green-200 bg-green-50" }`}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Outstanding &gt; Gold Value</p>
+          <p className={`text-3xl font-bold ${ highRiskCount > 0 ? "text-red-700" : "text-green-700" }`}>
+            {fmt0(highRiskCount)}
+            <span className="text-sm font-normal text-gray-500 ml-2">accounts</span>
           </p>
-        )}
+          {highRiskCount === 0 && <p className="text-xs text-green-600 mt-1">\u2705 No high-risk accounts</p>}
+        </div>
+
+        <div className={`rounded-xl border p-4 shadow-sm ${ highLTVCount > 0 ? "border-orange-200 bg-orange-50" : "border-green-200 bg-green-50" }`}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">LTV Above 85%</p>
+          <p className={`text-3xl font-bold ${ highLTVCount > 0 ? "text-orange-700" : "text-green-700" }`}>
+            {fmt0(highLTVCount)}
+            <span className="text-sm font-normal text-gray-500 ml-2">accounts</span>
+          </p>
+          {highLTVCount === 0 && <p className="text-xs text-green-600 mt-1">\u2705 All LTVs within limit</p>}
+        </div>
       </div>
 
-      {/* ── Error ────────────────────────────────────────────────────────── */}
-      {error && (
-        <div className="bg-red-50 px-5 py-3 text-red-700 text-sm">
-          Failed to load high-risk data: {error}
-        </div>
-      )}
-
-      {/* ── Table ────────────────────────────────────────────────────────── */}
-      {!error && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-[#0f172a] text-white">
-                {[
-                  "Customer ID",
-                  "Customer Name",
-                  "Branch",
-                  "Outstanding (₹)",
-                  "Gold Weight (g)",
-                  "Current Gold Value (₹)",
-                  "Excess Risk (₹)",
-                ].map(h => (
-                  <th
-                    key={h}
-                    className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide whitespace-nowrap"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8">
-                    <Skeleton />
-                  </td>
-                </tr>
-              ) : customers.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400 text-sm">
-                    No customers currently exceed their gold collateral value.
-                  </td>
-                </tr>
-              ) : (
-                customers.map((c, idx) => (
-                  <tr
-                    key={c.customerId}
-                    className={idx % 2 === 0 ? "bg-red-50" : "bg-white"}
-                  >
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600 whitespace-nowrap">
-                      {c.customerId}
-                    </td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900 whitespace-nowrap">
-                      {c.name}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
-                      {c.branch}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-semibold text-gray-800 whitespace-nowrap">
-                      {fmtINR(c.outstanding)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">
-                      {fmtG(c.goldWeight)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">
-                      {fmtINR(c.currentGoldValue)}
-                    </td>
-                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      <span className="inline-block bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded">
-                        {fmtINR(c.excessRisk)}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {highRiskCount > 0 && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+          \u26a0\ufe0f  {highRiskCount} account(s) require immediate management action —
+          ask the employee to upload the latest balance statement for account-level detail.
         </div>
       )}
     </div>

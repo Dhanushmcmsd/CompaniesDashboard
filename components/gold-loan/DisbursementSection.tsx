@@ -1,120 +1,130 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { usePeriod } from '@/context/PeriodContext';
+import { useEffect, useState } from "react";
+import { usePeriod } from "@/context/PeriodContext";
 import {
-  LineChart, Line,
-  BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer,
-} from 'recharts';
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, LineChart, Line, Legend,
+} from "recharts";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface TrendPoint   { label: string; amount: number }
-interface BranchPoint  { branch: string; disbursement: number; target: number }
-interface DvCData      { disbursement: number; collection: number }
+interface TrendPoint  { date: string; ftd: number; mtd: number; }
+interface BranchDisb  { branch: string; ftd: number; mtd: number; ytd: number; }
+interface DisbVsColl  { mtdDisbursements: number; ytdDisbursements: number; overdueCollection: number; totalOverdue: number; }
 
-const CHART_H = 260;
+function fmt2(n: unknown) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "\u2014";
+  return num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-lg shadow p-4 flex-1 min-w-0">
-      <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">{title}</h3>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">{title}</p>
       {children}
     </div>
   );
 }
 
 function Skeleton() {
-  return <div className="animate-pulse bg-gray-100 rounded" style={{ height: CHART_H }} />;
+  return (
+    <div className="animate-pulse grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {[0,1,2].map((i) => <div key={i} className="h-56 bg-gray-100 rounded-xl" />)}
+    </div>
+  );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
 export default function DisbursementSection() {
   const { period } = usePeriod();
-
-  const [trend,   setTrend]   = useState<TrendPoint[]  | null>(null);
-  const [branch,  setBranch]  = useState<BranchPoint[] | null>(null);
-  const [dvc,     setDvc]     = useState<DvCData        | null>(null);
+  const [trend,   setTrend]   = useState<TrendPoint[]>([]);
+  const [branches,setBranches]= useState<BranchDisb[]>([]);
+  const [disbVsColl, setDisbVsColl] = useState<DisbVsColl | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    setLoading(true); setError(null);
     Promise.all([
       fetch(`/api/dashboard/gold-loan/disbursement-trend?period=${period}`).then((r) => r.json()),
       fetch(`/api/dashboard/gold-loan/branch-disbursement?period=${period}`).then((r) => r.json()),
       fetch(`/api/dashboard/gold-loan/disb-vs-collection?period=${period}`).then((r) => r.json()),
-    ]).then(([t, b, d]) => {
-      setTrend(t.data);
-      setBranch(b.data);
-      setDvc(d);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    ])
+      .then(([t, b, d]) => {
+        // each API wraps in a key
+        setTrend(Array.isArray(t?.trend)    ? t.trend    : []);
+        setBranches(Array.isArray(b?.branches) ? b.branches : []);
+        setDisbVsColl(d?.data ?? null);
+        setLoading(false);
+      })
+      .catch((e: Error) => { setError(e.message); setLoading(false); });
   }, [period]);
 
-  const dvcBarData = dvc
-    ? [{ name: period, Disbursement: dvc.disbursement, Collection: dvc.collection }]
-    : [];
+  if (loading) return <Skeleton />;
+  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load disbursement data: {error}</div>;
+
+  const disbKey: keyof BranchDisb = period === "YTD" ? "ytd" : "mtd";
+  const emptyMsg = <p className="text-sm text-gray-400 text-center py-10">Upload a Balance Statement to see data.</p>;
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
-
-      {/* Chart 1 — Daily Trend */}
-      <ChartCard title="Daily Disbursement Trend (₹ Cr)">
-        {loading || !trend ? <Skeleton /> : (
-          <ResponsiveContainer width="100%" height={CHART_H}>
-            <LineChart data={trend} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Trend */}
+      <ChartCard title="Daily Disbursement Trend (\u20b9 Cr)">
+        {trend.length === 0 ? emptyMsg : (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={trend} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+              <XAxis dataKey="date" tick={{ fontSize: 9 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => [`₹${v} Cr`, 'Disbursement']} />
-              <Line
-                type="monotone"
-                dataKey="amount"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                name="Disbursement"
-              />
+              <Tooltip formatter={(v: number) => [`\u20b9 ${fmt2(v)} Cr`]} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Line type="monotone" dataKey="ftd" stroke="#3b82f6" strokeWidth={2} dot={false} name="FTD" />
+              <Line type="monotone" dataKey="mtd" stroke="#22c55e" strokeWidth={2} dot={false} name="MTD" />
             </LineChart>
           </ResponsiveContainer>
         )}
       </ChartCard>
 
-      {/* Chart 2 — Branch-wise Disbursement vs Target */}
-      <ChartCard title="Disbursement vs Target — Branch-wise">
-        {loading || !branch ? <Skeleton /> : (
-          <ResponsiveContainer width="100%" height={CHART_H}>
-            <BarChart data={branch} margin={{ top: 4, right: 12, left: 0, bottom: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="branch" tick={{ fontSize: 9 }} angle={-30} textAnchor="end" interval={0} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => `₹${v} Cr`} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="disbursement" fill="#3b82f6" name="Disbursement" radius={[2, 2, 0, 0]} />
-              <Bar dataKey="target"       fill="#d1d5db" name="Target"       radius={[2, 2, 0, 0]} />
+      {/* Branch disbursement */}
+      <ChartCard title={`Disbursement by Branch (${period})`}>
+        {branches.length === 0 ? emptyMsg : (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart
+              data={branches.slice(0, 10)}
+              layout="vertical"
+              margin={{ top: 0, right: 16, left: 8, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
+              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v} Cr`} />
+              <YAxis type="category" dataKey="branch" tick={{ fontSize: 9 }} width={70} />
+              <Tooltip formatter={(v: number) => [`\u20b9 ${fmt2(v)} Cr`, period]} />
+              <Bar dataKey={disbKey} fill="#3b82f6" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
       </ChartCard>
 
-      {/* Chart 3 — Disbursement vs Collection */}
-      <ChartCard title="Disbursement vs Collection (₹ Cr)">
-        {loading || !dvc ? <Skeleton /> : (
-          <ResponsiveContainer width="100%" height={CHART_H}>
-            <BarChart data={dvcBarData} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+      {/* Disb vs Collection */}
+      <ChartCard title="Disbursement vs Collection (\u20b9 Cr)">
+        {!disbVsColl ? emptyMsg : (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart
+              data={[
+                { name: "MTD Disb",      value: disbVsColl.mtdDisbursements },
+                { name: "YTD Disb",      value: disbVsColl.ytdDisbursements },
+                { name: "OD Collection", value: disbVsColl.overdueCollection },
+                { name: "Total Overdue", value: disbVsColl.totalOverdue },
+              ]}
+              margin={{ top: 4, right: 16, left: 0, bottom: 4 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => `₹${v} Cr`} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="Disbursement" fill="#3b82f6" radius={[2, 2, 0, 0]} />
-              <Bar dataKey="Collection"   fill="#22c55e" radius={[2, 2, 0, 0]} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v} Cr`} />
+              <Tooltip formatter={(v: number) => [`\u20b9 ${fmt2(v)} Cr`]} />
+              <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
       </ChartCard>
-
     </div>
   );
 }
