@@ -1,6 +1,9 @@
 {
+  "/page": "app/page.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/upload/gold-loan/history/route": "app/api/upload/gold-loan/history/route.js",
+  "/api/upload/gold-loan/route": "app/api/upload/gold-loan/route.js",
   "/(auth)/login/page": "app/(auth)/login/page.js",
   "/(employee)/upload/page": "app/(employee)/upload/page.js",
-  "/admin/page": "app/admin/page.js",
   "/(employee)/upload/supra/gold-loan/page": "app/(employee)/upload/supra/gold-loan/page.js"
 }
