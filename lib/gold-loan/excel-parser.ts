@@ -1,45 +1,122 @@
 import * as XLSX from "xlsx";
 
-type Parsed = {
-  fileType: string;
+export type ParsedFileType = "balance" | "transaction" | "interest-extract" | "unknown";
+
+export type ParsedGoldLoanExcel = {
+  fileType: ParsedFileType;
   reportDate: Date | null;
   headers: string[];
+  originalHeaders: string[];
   rows: Record<string, unknown>[];
   rowCount: number;
   errors: string[];
 };
 
-function cleanHeader(v: unknown): string {
-  return String(v ?? "").trim();
+const KEYWORDS = ["account", "customer", "balance", "disburs", "principal", "interest", "gold", "dpd", "branch"];
+
+const FIELD_ALIASES: Record<string, string[]> = {
+  loanAccountNumber: ["account num", "account number", "loan account number", "account num number"],
+  customerId: ["customer id", "customer code", "cust id"],
+  customerName: ["customer name", "name"],
+  branchName: ["branch name", "branch"],
+  disbursementDate: ["disbursment date", "disbursement date", "disb date"],
+  disbursedAmount: ["disbursed amount", "disbursement amount", "loan amount"],
+  closingBalance: ["closing balance", "closing balance cr", "principal closing amount", "balance"],
+  openingBalance: ["opening balance"],
+  principalCr: ["principal cr", "principal received", "principal collection"],
+  principalDr: ["principal dr"],
+  interestRcvd: ["interest rcvd", "interest received", "total interest amount", "interest collection"],
+  interestRcvDuring: ["interest rcvd during"],
+  interestRate: ["total interest rate", "interest rate", "yield"],
+  goldWeight: ["gold wt", "gold weight", "net gold weight"],
+  grossWt: ["gross wt", "gross weight"],
+  presentRate: ["present rate", "rate per gram", "gold rate"],
+  dpd: ["dpd", "days past due", "days overdue"],
+  schemeName: ["scheme name", "product", "loan product"],
+  branchState: ["br state", "state"],
+  branchRegion: ["br region", "region"],
+  totalOutstanding: ["total outstanding", "loan outstanding"],
+  totalAmountReceived: ["total amount received", "total amount", "collection amount"],
+  otherCharges: ["other charges", "other charges due"],
+  transactionDate: ["transaction date", "date"],
+};
+
+const EXTRA_ALIASES: Record<string, string[]> = {
+  schemeCode: ["scheme code"],
+  branchCode: ["br code", "branch code"],
+  inventoryNo: ["inventory no", "inventory number"],
+  totalInterestDue: ["total interest due"],
+};
+
+export function normalizeHeader(value: unknown): string {
+  const text = String(value ?? "")
+    .toLowerCase()
+    .replace(/\r?\n/g, " ")
+    .replace(/#/g, " number ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
 }
 
-function parseNumber(v: unknown): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
+function findBestHeaderRow(rows: unknown[][]): number {
+  let bestIndex = 0;
+  let bestScore = -1;
+  const scan = Math.min(5, rows.length);
+
+  for (let i = 0; i < scan; i++) {
+    const cells = (rows[i] ?? []).map(normalizeHeader);
+    const nonEmpty = cells.filter(Boolean).length;
+    const hits = KEYWORDS.reduce((acc, kw) => (cells.some((c) => c.includes(kw)) ? acc + 1 : acc), 0);
+    const score = nonEmpty + hits * 3;
+    if (hits >= 2 && score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
+}
+
+function fuzzyMatch(header: string, alias: string): boolean {
+  return header.includes(alias) || alias.includes(header);
+}
+
+export function findColumn(headers: string[], aliases: string[]): string | null {
+  for (const alias of aliases) {
+    const normAlias = normalizeHeader(alias);
+    const exact = headers.find((h) => h === normAlias);
+    if (exact) return exact;
+  }
+  for (const alias of aliases) {
+    const normAlias = normalizeHeader(alias);
+    const fuzzy = headers.find((h) => fuzzyMatch(h, normAlias));
+    if (fuzzy) return fuzzy;
+  }
+  return null;
+}
+
+function parseDate(value: unknown): Date | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (m) {
+    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const iso = new Date(raw);
+  return Number.isNaN(iso.getTime()) ? null : iso;
+}
+
+function parseNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = parseFloat(String(value).replace(/[^0-9.-]/g, ""));
   return Number.isFinite(n) ? n : null;
 }
 
-function parseString(v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  const s = String(v).trim();
-  return s.length ? s : null;
-}
-
-function parseDate(v: unknown): Date | null {
-  if (v === null || v === undefined || v === "") return null;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
-  const s = String(v).trim();
-  const ddmmyyyy = /^(\d{2})-(\d{2})-(\d{4})$/;
-  if (ddmmyyyy.test(s)) {
-    const [, dd, mm, yyyy] = s.match(ddmmyyyy)!;
-    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function extractReportDate(title: string): Date | null {
+function parseReportDate(rawTitleRows: string[]): Date | null {
+  const title = rawTitleRows.join(" ");
   const between = title.match(/Between (\d{2}-\d{2}-\d{4}) and (\d{2}-\d{2}-\d{4})/i);
   if (between) return parseDate(between[2]);
   const asOn = title.match(/As on (\d{2}-\d{2}-\d{4})/i);
@@ -47,159 +124,124 @@ function extractReportDate(title: string): Date | null {
   return null;
 }
 
-const BALANCE_MAP: Record<string, string> = {
-  "Scheme Code": "schemeCode",
-  "Scheme Name": "schemeName",
-  "Inventory No": "inventoryNo",
-  "Branch Name": "branchName",
-  "Br. Code": "branchCode",
-  "Br. State": "branchState",
-  "Br. Region": "branchRegion",
-  "Account Num#": "loanAccountNumber",
-  "Customer ID": "customerId",
-  "Customer Name": "customerName",
-  "Disbursment Date": "disbursementDate",
-  "Disbursed Amount": "disbursedAmount",
-  "Opening Balance": "openingBalance",
-  "Principal Dr.": "principalDr",
-  "Principal Cr.": "principalCr",
-  "Closing Balance": "closingBalance",
-  "Fully Received": "fullyReceived",
-  "Partial Prin.Rcvd.": "partialPrinRcvd",
-  "Bal. Prin.Rcvd.": "balPrinRcvd",
-  "Interest Rcvd": "interestRcvd",
-  "Interest Rcvd During": "interestRcvDuring",
-  "Other Charges Due": "otherChargesDue",
-  "Gross Wt.": "grossWt",
-  Deductions: "deductions",
-  "Gold Wt.": "goldWeight",
-  Purity: "goldPurity",
-  "Interest Collected Upto": "intCollectedUpto",
-  "Base Interest Due": "baseInterestDue",
-  "Other1 Due": "other1Due",
-  "Other2 Due": "other2Due",
-  "Other3 Due": "other3Due",
-  "Total Interest Due": "totalInterestDue",
-  "Total Outstanding": "totalOutstanding",
-  "Total Interest Rate": "interestRate",
-  "Notice Letter Status": "noticeLetter",
-  "Present Rate": "presentRate",
-  "Loan Period": "loanPeriod",
-  "Loan Period Type": "loanPeriodType",
-  "Reference #": "referenceNo",
-  "Inventory Date": "inventoryDate",
-  "Is Online Registered": "isOnline",
-  "Loan Availed Days": "loanAvailedDays",
-  "Days Post Intr.Upto": "daysPostIntr",
-  "Maturity Date": "maturityDate",
-  "Balance Days To Mature": "balDaysToMature",
-  "Is Locked": "isLocked",
-  "Locked By": "lockedBy",
-  "Marketing Executive Code": "mktExecCode",
-  "Marketing Executive": "mktExec",
-  "Relationship Executive Code": "relExecCode",
-  "Relationship Executive": "relExec",
-  "Collection Executive Code": "collExecCode",
-  "Collection Executive": "collExec",
-  DPD: "dpd",
-  "Discount Amt": "discountAmt",
-  "Renewed From A/c Num#": "renewedFrom",
-};
-
-const TRANSACTION_MAP: Record<string, string> = {
-  "Account Num#": "loanAccountNumber",
-  "Transaction Date": "transactionDate",
-  "Principal Received": "principalReceived",
-  "Interest Received": "interestReceived",
-  "Other Charges": "otherCharges",
-  "Total Amount Received": "totalAmountReceived",
-};
-
-const INTEREST_EXTRACT_MAP: Record<string, string> = {
-  "Account Num#": "loanAccountNumber",
-  "Transaction Date": "transactionDate",
-  "Principal Cr.": "principalReceived",
-  "Total Interest Amount": "interestReceived",
-  "Total Amount": "totalAmountReceived",
-};
-
-function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(row)) {
-    if (k.toLowerCase().includes("date") || k === "intCollectedUpto") out[k] = parseDate(v);
-    else if (
-      [
-        "openingBalance", "principalDr", "disbursedAmount", "principalCr", "closingBalance", "partialPrinRcvd", "balPrinRcvd",
-        "interestRcvd", "interestRcvDuring", "otherChargesDue", "grossWt", "deductions", "goldWeight", "goldPurity", "baseInterestDue",
-        "other1Due", "other2Due", "other3Due", "totalInterestDue", "totalOutstanding", "interestRate", "presentRate", "loanPeriod",
-        "loanAvailedDays", "daysPostIntr", "balDaysToMature", "dpd", "discountAmt", "principalReceived", "interestReceived", "otherCharges", "totalAmountReceived"
-      ].includes(k)
-    ) out[k] = parseNumber(v);
-    else out[k] = parseString(v);
-  }
-  return out;
+function toStringOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
 }
 
-export function parseGoldLoanExcel(buffer: ArrayBuffer): Parsed {
+export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): ParsedGoldLoanExcel {
   const errors: string[] = [];
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const matrix = XLSX.utils.sheet_to_json<(string | number | Date | null)[]>(firstSheet, { header: 1, defval: null });
+  const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, raw: false });
 
-  const title = (matrix[0] ?? []).join(" ");
-  const reportDate = extractReportDate(title);
+  if (!matrix.length) {
+    return {
+      fileType: "unknown",
+      reportDate: null,
+      headers: [],
+      originalHeaders: [],
+      rows: [],
+      rowCount: 0,
+      errors: ["Empty worksheet"],
+    };
+  }
 
-  const headers = ((matrix[1] ?? []) as unknown[]).map(cleanHeader).filter(Boolean);
+  const headerRowIndex = findBestHeaderRow(matrix);
+  const titleRows = matrix.slice(0, headerRowIndex).map((r) => (r ?? []).join(" "));
+  const reportDate = parseReportDate(titleRows);
 
-  const has = (h: string) => headers.includes(h);
-  let fileType = "unknown";
-  let map: Record<string, string> = {};
+  const originalHeaders = (matrix[headerRowIndex] ?? []).map((c) => String(c ?? "").trim());
+  const headers = originalHeaders.map(normalizeHeader);
 
-  if (has("Account Num#") && has("Closing Balance") && has("DPD")) {
-    fileType = "balance";
-    map = BALANCE_MAP;
-  } else if (has("Account Num#") && has("Total Amount Received")) {
-    fileType = "transaction";
-    map = TRANSACTION_MAP;
-  } else if (has("Account Num#") && has("Total Interest Amount")) {
-    fileType = "interest-extract";
-    map = INTEREST_EXTRACT_MAP;
-  } else {
-    errors.push("Unknown file type: required headers not found.");
+  const col: Record<string, string | null> = {};
+  for (const [field, aliases] of Object.entries({ ...FIELD_ALIASES, ...EXTRA_ALIASES })) {
+    col[field] = findColumn(headers, aliases);
+  }
+
+  const hasAccount = Boolean(col.loanAccountNumber);
+  const hasClosing = Boolean(col.closingBalance);
+  const hasTxnDate = Boolean(col.transactionDate);
+  const hasTotalAmt = Boolean(col.totalAmountReceived);
+  const hasPrincipalCr = Boolean(col.principalCr);
+  const hasInterest = Boolean(col.interestRcvd);
+
+  let fileType: ParsedFileType = "unknown";
+  if (hasAccount && hasClosing) fileType = "balance";
+  else if (hasAccount && hasTxnDate && hasTotalAmt) fileType = "transaction";
+  else if (hasAccount && (hasPrincipalCr || hasTotalAmt) && hasInterest) fileType = "interest-extract";
+
+  if (fileType === "unknown") {
+    errors.push(
+      `Unknown file type for ${filename ?? "file"}. Headers seen: ${headers.slice(0, 25).join(", ")}`
+    );
   }
 
   const rows: Record<string, unknown>[] = [];
-  for (let i = 2; i < matrix.length; i++) {
-    const rowArr = matrix[i] ?? [];
-    if (!rowArr.some((v) => v !== null && v !== "")) continue;
-    const raw: Record<string, unknown> = {};
+  for (let i = headerRowIndex + 1; i < matrix.length; i++) {
+    const arr = matrix[i] ?? [];
+    if (!arr.some((v) => v != null && String(v).trim() !== "")) continue;
+
+    const objByHeader: Record<string, unknown> = {};
     headers.forEach((h, idx) => {
-      raw[h] = rowArr[idx] ?? null;
+      objByHeader[h] = arr[idx] ?? null;
     });
 
-    const mapped: Record<string, unknown> = {};
-    for (const [source, target] of Object.entries(map)) {
-      if (source in raw) mapped[target] = raw[source];
+    const out: Record<string, unknown> = {};
+
+    const read = (field: string) => {
+      const key = col[field];
+      return key ? objByHeader[key] : null;
+    };
+
+    out.loanAccountNumber = toStringOrNull(read("loanAccountNumber"));
+    out.customerId = toStringOrNull(read("customerId"));
+    out.customerName = toStringOrNull(read("customerName"));
+    out.branchName = toStringOrNull(read("branchName"));
+    out.branchState = toStringOrNull(read("branchState"));
+    out.branchRegion = toStringOrNull(read("branchRegion"));
+    out.schemeName = toStringOrNull(read("schemeName"));
+    out.schemeCode = toStringOrNull(read("schemeCode"));
+    out.branchCode = toStringOrNull(read("branchCode"));
+    out.inventoryNo = toStringOrNull(read("inventoryNo"));
+
+    out.disbursementDate = parseDate(read("disbursementDate"));
+    out.transactionDate = parseDate(read("transactionDate"));
+
+    out.disbursedAmount = parseNumber(read("disbursedAmount"));
+    out.openingBalance = parseNumber(read("openingBalance"));
+    out.closingBalance = parseNumber(read("closingBalance"));
+    out.principalCr = parseNumber(read("principalCr"));
+    out.principalDr = parseNumber(read("principalDr"));
+    out.interestRcvd = parseNumber(read("interestRcvd"));
+    out.interestRcvDuring = parseNumber(read("interestRcvDuring"));
+    out.interestRate = parseNumber(read("interestRate"));
+    out.goldWeight = parseNumber(read("goldWeight"));
+    out.grossWt = parseNumber(read("grossWt"));
+    out.presentRate = parseNumber(read("presentRate"));
+    out.dpd = parseNumber(read("dpd"));
+    out.totalOutstanding = parseNumber(read("totalOutstanding"));
+    out.totalAmountReceived = parseNumber(read("totalAmountReceived"));
+    out.otherCharges = parseNumber(read("otherCharges"));
+    out.totalInterestDue = parseNumber(read("totalInterestDue"));
+
+    const principalReceived = parseNumber(read("principalCr"));
+    const interestReceived = parseNumber(read("interestRcvd"));
+    out.principalReceived = principalReceived;
+    out.interestReceived = interestReceived;
+    if (principalReceived != null || interestReceived != null) {
+      out.principalInterestReceived = (principalReceived ?? 0) + (interestReceived ?? 0);
     }
 
-    const normalized = normalizeRow(mapped);
-    if (normalized.principalReceived !== undefined || normalized.interestReceived !== undefined) {
-      const pr = (normalized.principalReceived as number | null) ?? 0;
-      const ir = (normalized.interestReceived as number | null) ?? 0;
-      normalized.principalInterestReceived = pr + ir;
-      if (normalized.totalAmountReceived == null) {
-        const oc = (normalized.otherCharges as number | null) ?? 0;
-        normalized.totalAmountReceived = pr + ir + oc;
-      }
-    }
-
-    rows.push(normalized);
+    if (fileType !== "unknown") rows.push(out);
   }
 
   return {
     fileType,
     reportDate,
     headers,
+    originalHeaders,
     rows,
     rowCount: rows.length,
     errors,
