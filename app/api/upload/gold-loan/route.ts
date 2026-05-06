@@ -19,12 +19,69 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return res;
 }
 
-/**
- * Balance processor.
- * Strategy: for each chunk, fetch existing account numbers in one query,
- * then split into CREATE batch (createMany) and UPDATE batch (Promise.all upsert).
- * This is ~10x faster than per-row upsert for large files.
- */
+/** Cast a parsed float to Int for dpd — rounds to nearest integer */
+function toInt(v: unknown): number | null {
+  const n = v == null ? null : Math.round(Number(v));
+  return n != null && Number.isFinite(n) ? n : null;
+}
+
+function toFloat(v: unknown): number | null {
+  if (v == null) return null;
+  const n = parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+
+function toStr(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
+function toDate(v: unknown): Date | null {
+  if (v == null) return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
+  return null;
+}
+
+function toData(
+  r: Record<string, unknown>,
+  uploadBatchId: string,
+  reportDate: Date | null
+) {
+  return {
+    loanAccountNumber:  String(r.loanAccountNumber).trim(),
+    customerId:         toStr(r.customerId),
+    customerName:       toStr(r.customerName),
+    branchName:         toStr(r.branchName),
+    branchState:        toStr(r.branchState),
+    branchRegion:       toStr(r.branchRegion),
+    schemeName:         toStr(r.schemeName),
+    schemeCode:         toStr(r.schemeCode),
+    branchCode:         toStr(r.branchCode),
+    inventoryNo:        toStr(r.inventoryNo),
+    disbursementDate:   toDate(r.disbursementDate),
+    maturityDate:       toDate(r.maturityDate),
+    inventoryDate:      toDate(r.inventoryDate),
+    disbursedAmount:    toFloat(r.disbursedAmount),
+    openingBalance:     toFloat(r.openingBalance),
+    principalDr:        toFloat(r.principalDr),
+    principalCr:        toFloat(r.principalCr),         // ← was missing before
+    closingBalance:     toFloat(r.closingBalance),
+    interestRcvd:       toFloat(r.interestRcvd),
+    interestRcvDuring:  toFloat(r.interestRcvDuring),
+    goldWeight:         toFloat(r.goldWeight),
+    grossWt:            toFloat(r.grossWt),
+    goldPurity:         toFloat(r.goldPurity),
+    presentRate:        toFloat(r.presentRate),
+    interestRate:       toFloat(r.interestRate),
+    totalOutstanding:   toFloat(r.totalOutstanding),
+    totalInterestDue:   toFloat(r.totalInterestDue),
+    dpd:                toInt(r.dpd),                   // ← schema is Int?, must NOT pass Float
+    uploadBatchId,
+    reportDate,
+  };
+}
+
 async function processBalanceRows(
   rows: Record<string, unknown>[],
   uploadBatchId: string,
@@ -36,82 +93,56 @@ async function processBalanceRows(
 
   const validRows = rows.filter((r) => {
     const acc = String(r.loanAccountNumber ?? "").trim();
-    if (!acc) { errors.push("Skipped row: missing loanAccountNumber"); return false; }
+    if (!acc || acc === "null" || acc === "undefined") {
+      errors.push("Skipped row: missing loanAccountNumber");
+      return false;
+    }
     return true;
   });
+
+  console.log(`[balance] valid rows to write: ${validRows.length}`);
 
   for (const group of chunk(validRows, 300)) {
     const accountNumbers = group.map((r) => String(r.loanAccountNumber).trim());
 
-    // Single query to find which accounts already exist
     const existing = await prisma.goldLoanBalance.findMany({
       where: { loanAccountNumber: { in: accountNumbers } },
       select: { loanAccountNumber: true },
     });
     const existingSet = new Set(existing.map((e) => e.loanAccountNumber));
 
-    const toCreate: typeof group = [];
-    const toUpdate: typeof group = [];
+    const toCreate = group.filter((r) => !existingSet.has(String(r.loanAccountNumber).trim()));
+    const toUpdate = group.filter((r) =>  existingSet.has(String(r.loanAccountNumber).trim()));
 
-    for (const r of group) {
-      const acc = String(r.loanAccountNumber).trim();
-      if (existingSet.has(acc)) toUpdate.push(r);
-      else toCreate.push(r);
-    }
-
-    const toData = (r: Record<string, unknown>) => ({
-      loanAccountNumber:  String(r.loanAccountNumber).trim(),
-      customerId:         (r.customerId as string | null)        ?? null,
-      customerName:       (r.customerName as string | null)      ?? null,
-      branchName:         (r.branchName as string | null)        ?? null,
-      branchState:        (r.branchState as string | null)       ?? null,
-      branchRegion:       (r.branchRegion as string | null)      ?? null,
-      schemeName:         (r.schemeName as string | null)        ?? null,
-      disbursementDate:   (r.disbursementDate as Date | null)    ?? null,
-      disbursedAmount:    (r.disbursedAmount as number | null)   ?? null,
-      openingBalance:     (r.openingBalance as number | null)    ?? null,
-      principalDr:        (r.principalDr as number | null)       ?? null,
-      principalCr:        (r.principalCr as number | null)       ?? null,
-      closingBalance:     (r.closingBalance as number | null)    ?? null,
-      interestRcvd:       (r.interestRcvd as number | null)      ?? null,
-      interestRcvDuring:  (r.interestRcvDuring as number | null) ?? null,
-      goldWeight:         (r.goldWeight as number | null)        ?? null,
-      grossWt:            (r.grossWt as number | null)           ?? null,
-      goldPurity:         (r.goldPurity as number | null)        ?? null,
-      presentRate:        (r.presentRate as number | null)       ?? null,
-      interestRate:       (r.interestRate as number | null)      ?? null,
-      totalOutstanding:   (r.totalOutstanding as number | null)  ?? null,
-      totalInterestDue:   (r.totalInterestDue as number | null)  ?? null,
-      maturityDate:       (r.maturityDate as Date | null)        ?? null,
-      dpd:                (r.dpd as number | null)               ?? null,
-      uploadBatchId,
-      reportDate,
-    });
-
-    // Bulk insert new rows
+    // Bulk insert brand-new rows
     if (toCreate.length) {
       try {
         const res = await prisma.goldLoanBalance.createMany({
-          data: toCreate.map(toData),
+          data: toCreate.map((r) => toData(r, uploadBatchId, reportDate)),
           skipDuplicates: true,
         });
         inserted += res.count;
+        console.log(`[balance] createMany inserted ${res.count}`);
       } catch (e) {
-        errors.push(`Bulk insert error: ${(e as Error).message}`);
+        const msg = `Bulk insert error: ${(e as Error).message}`;
+        console.error(msg);
+        errors.push(msg);
       }
     }
 
-    // Update existing rows one by one (still chunked)
+    // Update existing rows
     for (const r of toUpdate) {
       const loanAccountNumber = String(r.loanAccountNumber).trim();
       try {
         await prisma.goldLoanBalance.update({
           where: { loanAccountNumber },
-          data: toData(r),
+          data: toData(r, uploadBatchId, reportDate),
         });
         updated += 1;
       } catch (e) {
-        errors.push(`Update ${loanAccountNumber}: ${(e as Error).message}`);
+        const msg = `Update ${loanAccountNumber}: ${(e as Error).message}`;
+        console.error(msg);
+        errors.push(msg);
       }
     }
   }
@@ -130,7 +161,6 @@ async function processTransactionRows(rows: Record<string, unknown>[]) {
   const minDate = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : null;
   const maxDate = dates.length ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
 
-  // Delete existing rows for same accounts + date window before re-inserting
   if (accountNumbers.length && minDate && maxDate) {
     await prisma.goldLoanTransaction.deleteMany({
       where: {
@@ -142,20 +172,20 @@ async function processTransactionRows(rows: Record<string, unknown>[]) {
 
   for (const group of chunk(cleanRows, 500)) {
     const data = group.map((r) => ({
-      loanAccountNumber: String(r.loanAccountNumber),
-      transactionDate:   r.transactionDate as Date,
-      principalReceived: (r.principalReceived as number | null) ?? null,
-      interestReceived:  (r.interestReceived as number | null)  ?? null,
-      otherCharges:      (r.otherCharges as number | null)      ?? null,
+      loanAccountNumber:         String(r.loanAccountNumber),
+      transactionDate:           r.transactionDate as Date,
+      principalReceived:         toFloat(r.principalReceived),
+      interestReceived:          toFloat(r.interestReceived),
+      otherCharges:              toFloat(r.otherCharges),
       totalAmountReceived:
-        (r.totalAmountReceived as number | null) ??
-        (((r.principalReceived as number | null) ?? 0) +
-         ((r.interestReceived as number | null)  ?? 0) +
-         ((r.otherCharges as number | null)       ?? 0)),
+        toFloat(r.totalAmountReceived) ??
+        ((toFloat(r.principalReceived) ?? 0) +
+         (toFloat(r.interestReceived)  ?? 0) +
+         (toFloat(r.otherCharges)       ?? 0)),
       principalInterestReceived:
-        (r.principalInterestReceived as number | null) ??
-        (((r.principalReceived as number | null) ?? 0) +
-         ((r.interestReceived as number | null)  ?? 0)),
+        toFloat(r.principalInterestReceived) ??
+        ((toFloat(r.principalReceived) ?? 0) +
+         (toFloat(r.interestReceived)  ?? 0)),
     }));
 
     try {
@@ -164,7 +194,9 @@ async function processTransactionRows(rows: Record<string, unknown>[]) {
         inserted += data.length;
       }
     } catch (e) {
-      errors.push(`Transaction chunk error: ${(e as Error).message}`);
+      const msg = `Transaction chunk error: ${(e as Error).message}`;
+      console.error(msg);
+      errors.push(msg);
     }
   }
 
@@ -173,14 +205,14 @@ async function processTransactionRows(rows: Record<string, unknown>[]) {
 
 async function processInterestExtractRows(rows: Record<string, unknown>[]) {
   const normalized = rows.map((r) => {
-    const p = (r.principalReceived as number | null) ?? (r.principalCr as number | null) ?? 0;
-    const i = (r.interestReceived as number | null) ?? (r.interestRcvd as number | null) ?? 0;
+    const p = toFloat(r.principalReceived) ?? toFloat(r.principalCr) ?? 0;
+    const i = toFloat(r.interestReceived)  ?? toFloat(r.interestRcvd)  ?? 0;
     return {
       ...r,
-      principalReceived:        p,
-      interestReceived:         i,
-      otherCharges:             0,
-      totalAmountReceived:      p + i,
+      principalReceived:         p,
+      interestReceived:          i,
+      otherCharges:              0,
+      totalAmountReceived:       p + i,
       principalInterestReceived: p + i,
     };
   });
@@ -195,8 +227,6 @@ export async function POST(req: Request) {
     }
 
     const formData = await req.formData();
-
-    // Support both 'files' and 'files[]' field names
     const files = [
       ...formData.getAll("files").filter((f): f is File => f instanceof File),
       ...formData.getAll("files[]").filter((f): f is File => f instanceof File),
@@ -225,62 +255,54 @@ export async function POST(req: Request) {
         rowCount = parsed.rowCount;
         perFileErrors.push(...parsed.errors);
 
-        if (fileType === "unknown") {
-          // Still log the batch so employee can see the failed attempt in history
-          await prisma.uploadBatch.create({
-            data: {
-              company: "supra",
-              portfolio: "gold-loan",
-              fileType,
-              originalName: file.name,
-              reportDate: null,
-              uploadedBy: session.user.email ?? "unknown",
-              rowCount: 0,
-              inserted: 0,
-              updated: 0,
-              errors: perFileErrors,
-            },
-          });
+        console.log(`[upload] ${file.name} → type=${fileType} rows=${rowCount}`);
+
+        const batchData = {
+          company: "supra",
+          portfolio: "gold-loan",
+          fileType,
+          originalName: file.name,
+          reportDate: parsed.reportDate,
+          uploadedBy: session.user.email ?? "unknown",
+          rowCount,
+        };
+
+        const batch = await prisma.uploadBatch.create({ data: batchData });
+
+        if (fileType === "balance") {
+          const res = await processBalanceRows(parsed.rows, batch.id, parsed.reportDate);
+          inserted = res.inserted;
+          updated  = res.updated;
+          perFileErrors.push(...res.errors);
+        } else if (fileType === "transaction") {
+          const res = await processTransactionRows(parsed.rows);
+          inserted = res.inserted;
+          updated  = res.updated;
+          perFileErrors.push(...res.errors);
+        } else if (fileType === "interest-extract") {
+          const res = await processInterestExtractRows(parsed.rows);
+          inserted = res.inserted;
+          updated  = res.updated;
+          perFileErrors.push(...res.errors);
         } else {
-          const batch = await prisma.uploadBatch.create({
-            data: {
-              company: "supra",
-              portfolio: "gold-loan",
-              fileType,
-              originalName: file.name,
-              reportDate: parsed.reportDate,
-              uploadedBy: session.user.email ?? "unknown",
-              rowCount,
-            },
-          });
-
-          if (fileType === "balance") {
-            const res = await processBalanceRows(parsed.rows, batch.id, parsed.reportDate);
-            inserted = res.inserted;
-            updated = res.updated;
-            perFileErrors.push(...res.errors);
-          } else if (fileType === "transaction") {
-            const res = await processTransactionRows(parsed.rows);
-            inserted = res.inserted;
-            updated = res.updated;
-            perFileErrors.push(...res.errors);
-          } else if (fileType === "interest-extract") {
-            const res = await processInterestExtractRows(parsed.rows);
-            inserted = res.inserted;
-            updated = res.updated;
-            perFileErrors.push(...res.errors);
-          }
-
-          await prisma.uploadBatch.update({
-            where: { id: batch.id },
-            data: { inserted, updated, errors: perFileErrors },
-          });
+          perFileErrors.push(
+            `Unknown file type — file skipped. Detected headers: ${parsed.headers.slice(0, 10).join(", ")}`
+          );
         }
 
+        console.log(`[upload] ${file.name} → inserted=${inserted} updated=${updated} errors=${perFileErrors.length}`);
+
+        await prisma.uploadBatch.update({
+          where: { id: batch.id },
+          data: { inserted, updated, errors: perFileErrors },
+        });
+
         totalInserted += inserted;
-        totalUpdated += updated;
+        totalUpdated  += updated;
       } catch (e) {
-        perFileErrors.push(`Unexpected error: ${(e as Error).message}`);
+        const msg = `Unexpected error processing ${file.name}: ${(e as Error).message}`;
+        console.error(msg, e);
+        perFileErrors.push(msg);
       } finally {
         console.timeEnd(file.name);
       }
