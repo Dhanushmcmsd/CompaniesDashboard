@@ -1,6 +1,7 @@
 "use client";
 
 import PeriodSelector from "@/components/gold-loan/PeriodSelector";
+import ExecutiveSummaryGrid from "@/components/gold-loan/ExecutiveSummaryGrid";
 
 function today(): string {
   return new Date().toLocaleDateString("en-IN", {
@@ -42,21 +43,7 @@ export default function GoldLoanPage() {
           <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-gray-300 pb-1">
             Executive Summary
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {/* KPI tiles rendered here in Phase 3 */}
-            <Placeholder label="Total AUM" />
-            <Placeholder label="Total Disbursement" />
-            <Placeholder label="Total Collection" />
-            <Placeholder label="Active Loan A/Cs" />
-            <Placeholder label="Overdue Amount" />
-            <Placeholder label="Overdue %" />
-            <Placeholder label="NPA Amount" />
-            <Placeholder label="NPA %" />
-            <Placeholder label="New Customers" />
-            <Placeholder label="Avg Interest Rate" />
-            <Placeholder label="Gold Weight (g)" />
-            <Placeholder label="Avg LTV" />
-          </div>
+          <ExecutiveSummaryGrid />
         </section>
 
         {/* ── Section 2: Disbursement & Collection ── */}
@@ -136,10 +123,6 @@ export default function GoldLoanPage() {
   );
 }
 
-/* ─────────────────────────────────────────────
-   Temporary placeholder card used until real
-   components are wired in Phase 3+
-───────────────────────────────────────────── */
 function Placeholder({ label, tall }: { label: string; tall?: boolean }) {
   return (
     <div
