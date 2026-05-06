@@ -20,21 +20,6 @@
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/(auth)/layout.js"
-    ],
-    "/(employee)/upload/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(employee)/upload/page.js"
-    ],
-    "/(employee)/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(employee)/layout.js"
-    ],
-    "/(employee)/upload/supra/gold-loan/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(employee)/upload/supra/gold-loan/page.js"
     ]
   }
 }
