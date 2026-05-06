@@ -6,6 +6,7 @@ import DisbursementSection from "@/components/gold-loan/DisbursementSection";
 import OverdueSection from "@/components/gold-loan/OverdueSection";
 import NewCustomersSection from "@/components/gold-loan/NewCustomersSection";
 import ClosureSection from "@/components/gold-loan/ClosureSection";
+import HighRiskTable from "@/components/gold-loan/HighRiskTable";
 
 function today(): string {
   return new Date().toLocaleDateString("en-IN", {
@@ -60,11 +61,9 @@ export default function GoldLoanPage() {
           <ClosureSection />
         </section>
 
+        {/* ⚠ High Risk — no SectionHeading, uses its own styled header */}
         <section id="high-risk">
-          <h2 className="text-[#0f172a] text-base font-bold uppercase tracking-widest mb-3 border-b border-red-400 pb-1 flex items-center gap-2">
-            <span>⚠</span> High Risk Table
-          </h2>
-          <Placeholder label="High Risk Customer Table" tall />
+          <HighRiskTable />
         </section>
 
         <section id="npa-risk">
