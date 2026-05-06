@@ -11,24 +11,27 @@ export async function GET() {
     }
 
     const items = await prisma.uploadBatch.findMany({
-      where: { company: "supra", portfolio: "gold-loan" },
+      where:   { company: "supra", portfolio: "gold-loan" },
       orderBy: { uploadedAt: "desc" },
-      take: 10,
+      take:    10,
       select: {
-        id: true,
-        fileType: true,
+        id:          true,
+        fileType:    true,
         originalName: true,
-        reportDate: true,
-        rowCount: true,
-        inserted: true,
-        updated: true,
-        uploadedAt: true,
-        uploadedBy: true,
+        reportDate:  true,
+        rowCount:    true,
+        status:      true,
+        uploadedBy:  true,
+        uploadedAt:  true,
+        errors:      true,
       },
     });
 
-    return NextResponse.json({ items });
+    return NextResponse.json({ items }, { status: 200 });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: `Server error: ${(e as Error).message}` },
+      { status: 500 }
+    );
   }
 }

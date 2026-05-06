@@ -10,114 +10,88 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────
-// Gold Loan — Loan Balance Statement
-// ─────────────────────────────────────────────
-model GoldLoanBalance {
-  id                String    @id @default(cuid())
-  loanAccountNumber String    @unique
-  customerId        String?
-  customerName      String?
-  branchName        String?
-  branchCode        String?
-  branchState       String?
-  branchRegion      String?
-  schemeName        String?
-  schemeCode        String?
-  inventoryNo       String?
-  disbursementDate  DateTime?
-  inventoryDate     DateTime?
-  intCollectedUpto  DateTime?
-  maturityDate      DateTime?
-  closureDate       DateTime?
-  closureReason     String?
-  referenceNo       String?
-  fullyReceived     String?
-  loanPeriodType    String?
-  noticeLetter      String?
-  isOnline          String?
-  isLocked          String?
-  lockedBy          String?
-  mktExecCode       String?
-  mktExec           String?
-  relExecCode       String?
-  relExec           String?
-  collExecCode      String?
-  collExec          String?
-  renewedFrom       String?
-  uploadBatchId     String?
-  reportDate        DateTime?
-  openingBalance    Float?
-  principalDr       Float?
-  closingBalance    Float?
-  disbursedAmount   Float?
-  totalInterestDue  Float?
-  totalOutstanding  Float?
-  goldWeight        Float?
-  grossWt           Float?
-  deductions        Float?
-  goldPurity        Float?
-  interestRate      Float?
-  presentRate       Float?
-  dpd               Int?
-  interestRcvd      Float?
-  interestRcvDuring Float?
-  otherChargesDue   Float?
-  partialPrinRcvd   Float?
-  balPrinRcvd       Float?
-  baseInterestDue   Float?
-  other1Due         Float?
-  other2Due         Float?
-  other3Due         Float?
-  loanPeriod        Int?
-  loanAvailedDays   Int?
-  daysPostIntr      Int?
-  balDaysToMature   Int?
-  principalCr       Float?
-  discountAmt       Float?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+// ─────────────────────────────────────────────────────────────────────────────
+// Gold Loan — KPI Snapshot
+// Stores the fully calculated dashboard metrics per upload.
+// Raw Excel rows are NEVER stored — all calculations happen in-memory.
+// ─────────────────────────────────────────────────────────────────────────────
+model GoldLoanSnapshot {
+  id            String   @id @default(cuid())
+  uploadBatchId String   @unique
+  company       String
+  reportDate    DateTime?
 
-  @@map("gold_loan_balance")
+  // ── Executive Summary ─────────────────────────────────────────────────────
+  totalAUM              Float   // SUM(closingBalance)
+  totalAccounts         Int     // COUNT(loanAccountNumber)
+  totalCustomers        Int     // COUNT DISTINCT customerId
+  avgTicketSize         Float   // totalAUM / totalAccounts
+  avgYield              Float   // AVG(interestRate)
+  totalGoldWeight       Float   // SUM(goldWeight)
+  avgGoldWeightPerLoan  Float   // totalGoldWeight / totalAccounts
+  avgLTV                Float   // AVG(closingBalance / (goldWeight * presentRate) * 100)
+  avgPresentRate        Float   // AVG(presentRate)
+  avgGoldValuePerLoan   Float   // AVG(goldWeight * presentRate)
+  newDisbursements      Float   // SUM(disbursedAmount) for today's disbursementDate
+  mtdDisbursements      Float   // SUM(disbursedAmount) for current month
+  ytdDisbursements      Float   // SUM(disbursedAmount) for current year
+
+  // ── NPA & Risk ────────────────────────────────────────────────────────────
+  gnpaAmount            Float   // SUM(closingBalance WHERE dpd > 90)
+  gnpaPct               Float   // gnpaAmount / totalAUM * 100
+  nnpaPct               Float   // gnpaPct * 0.65 (approx until NNPA source available)
+
+  // ── Overdue & Collection ──────────────────────────────────────────────────
+  totalOverdue          Float   // SUM(closingBalance WHERE dpd > 0)
+  overdueCollection     Float   // SUM(principalCr + interestRcvd WHERE dpd > 0)
+  collectionEfficiency  Float   // overdueCollection / totalOverdue * 100
+  overduePercent        Float   // totalOverdue / totalAUM * 100
+
+  // ── DPD Buckets ───────────────────────────────────────────────────────────
+  bucket0to30           Float   // SUM(closingBalance WHERE dpd 1-30)
+  bucket31to60          Float   // SUM(closingBalance WHERE dpd 31-60)
+  bucket61to90          Float   // SUM(closingBalance WHERE dpd 61-90)
+  bucket90plus          Float   // SUM(closingBalance WHERE dpd > 90)
+
+  // ── Branch & Product breakdown (stored as JSON) ───────────────────────────
+  branchAUM             Json    // [{branch, aum, accounts}]
+  productAUM            Json    // [{scheme, aum, accounts}]
+  branchDisbursement    Json    // [{branch, ftd, mtd, ytd}]
+  branchNPA             Json    // [{branch, gnpaAmount, gnpaPct}]
+  branchGoldWeight      Json    // [{branch, totalGoldWeight, avgPerLoan}]
+
+  // ── Alerts ────────────────────────────────────────────────────────────────
+  highLTVAccounts       Int     // COUNT WHERE (closingBalance / (goldWeight * presentRate)) > 0.85
+  goldValueMismatch     Int     // COUNT WHERE closingBalance > (goldWeight * presentRate)
+  auctionCases          Int     // COUNT WHERE dpd > 90 (proxy)
+
+  createdAt DateTime @default(now())
+
+  @@map("gold_loan_snapshots")
 }
 
-// ─────────────────────────────────────────────
-// Gold Loan — Transaction Statement
-// ─────────────────────────────────────────────
-model GoldLoanTransaction {
-  id                   String   @id @default(cuid())
-  loanAccountNumber    String
-  transactionDate      DateTime
-  principalReceived    Float?
-  interestReceived     Float?
-  principalInterestReceived Float?
-  otherCharges         Float?
-  totalAmountReceived  Float?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  @@index([loanAccountNumber])
-  @@index([transactionDate])
-  @@map("gold_loan_transaction")
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Upload Batch — tracks every file upload attempt
+// ─────────────────────────────────────────────────────────────────────────────
 model UploadBatch {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   company      String
   portfolio    String
   fileType     String
   originalName String
   reportDate   DateTime?
   uploadedBy   String
-  uploadedAt   DateTime @default(now())
-  rowCount     Int      @default(0)
-  inserted     Int      @default(0)
-  updated      Int      @default(0)
+  uploadedAt   DateTime  @default(now())
+  rowCount     Int       @default(0)
+  status       String    @default("pending") // pending | done | error
   errors       Json?
 
   @@map("upload_batches")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Users & Auth (unchanged)
+// ─────────────────────────────────────────────────────────────────────────────
 enum Role {
   PENDING
   EMPLOYEE
@@ -142,15 +116,15 @@ model User {
 }
 
 model AccessRequest {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
   requestedAt DateTime @default(now())
-  status     String   @default("pending")
-  company    String
-  note       String?
-  reviewedAt DateTime?
-  reviewedBy String?
+  status      String   @default("pending")
+  company     String
+  note        String?
+  reviewedAt  DateTime?
+  reviewedBy  String?
 
   @@map("access_requests")
 }
