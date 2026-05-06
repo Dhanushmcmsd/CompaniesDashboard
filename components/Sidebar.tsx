@@ -2,119 +2,83 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { signOut, useSession } from "next-auth/react";
+import { COMPANIES } from "@/lib/companies";
 
-interface NavItem {
-  label: string;
-  href?: string;
-  icon: string;
-  children?: NavItem[];
-  /** If set, only these cookie role values will see this item */
-  roles?: string[];
-}
-
-const NAV: NavItem[] = [
-  {
-    label: "Supra Pacific",
-    icon: "🏢",
-    children: [
-      {
-        label: "Gold Loan",
-        href: "/dashboard/supra/gold-loan",
-        icon: "🏅",
-      },
-      {
-        label: "Upload Data",
-        href: "/dashboard/supra/gold-loan/upload",
-        icon: "⬆️",
-        roles: ["admin", "supra_employee"],
-      },
-    ],
-  },
-];
-
-function useRole(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(/(?:^|; )role=([^;]*)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function NavLink({
-  item,
-  depth = 0,
-  role,
-}: {
-  item: NavItem;
-  depth?: number;
-  role: string | null;
-}) {
+export default function Sidebar() {
   const pathname = usePathname();
-  const [open, setOpen] = useState(true);
+  const { data } = useSession();
+  const user = data?.user;
 
-  // Role filter
-  if (item.roles && (!role || !item.roles.includes(role))) return null;
+  const role = user?.role;
+  const company = user?.company;
 
-  const isActive = item.href ? pathname.startsWith(item.href) : false;
+  return (
+    <aside className="w-64 min-h-screen bg-[#0f172a] text-white p-4 flex flex-col">
+      <div className="mb-6">
+        <p className="font-bold text-lg">Companies</p>
+        <p className="text-xs text-gray-400">Management Dashboard</p>
+      </div>
 
-  if (item.children) {
-    return (
-      <div>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold text-gray-300 hover:bg-white/10 transition"
-        >
-          <span>{item.icon}</span>
-          <span className="flex-1 text-left">{item.label}</span>
-          <span className="text-xs text-gray-500">{open ? "▾" : "▸"}</span>
-        </button>
-        {open && (
-          <div className="ml-3 border-l border-white/10 pl-2 mt-0.5 space-y-0.5">
-            {item.children.map((child) => (
-              <NavLink key={child.label} item={child} depth={depth + 1} role={role} />
+      {role === "ADMIN" && (
+        <Link href="/admin" className={`mb-3 block rounded-lg px-3 py-2 ${pathname.startsWith("/admin") ? "bg-white/20" : "bg-white/10 hover:bg-white/20"}`}>
+          Admin Panel
+        </Link>
+      )}
+
+      <nav className="flex-1 space-y-3">
+        {(role === "MANAGEMENT" || role === "ADMIN") &&
+          COMPANIES.filter((c) => (role === "ADMIN" ? true : c.name === company)).map((c) => (
+            <div key={c.slug}>
+              <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">{c.name}</p>
+              <div className="space-y-1">
+                {c.portfolios.map((p) => (
+                  <div key={p.slug}>
+                    {p.active && "dashboardPath" in p ? (
+                      <Link
+                        href={p.dashboardPath}
+                        className={`block rounded-lg px-3 py-2 text-sm ${pathname.startsWith(p.dashboardPath) ? "bg-white/20" : "hover:bg-white/10 text-gray-200"}`}
+                      >
+                        {p.name}
+                      </Link>
+                    ) : (
+                      <div className="rounded-lg px-3 py-2 text-sm text-gray-500 cursor-not-allowed">{p.name} · Coming Soon</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+        {(role === "EMPLOYEE" || role === "ADMIN") && (
+          <div>
+            <p className="text-xs uppercase tracking-wider text-gray-400 mb-1">Uploads</p>
+            {COMPANIES.filter((c) => (role === "ADMIN" ? true : c.name === company)).map((c) => (
+              <div key={`${c.slug}-upload`} className="space-y-1">
+                {c.portfolios.map((p) => (
+                  <div key={`${p.slug}-upload`}>
+                    {p.active && "uploadPath" in p ? (
+                      <Link
+                        href={p.uploadPath}
+                        className={`block rounded-lg px-3 py-2 text-sm ${pathname.startsWith(p.uploadPath) ? "bg-white/20" : "hover:bg-white/10 text-gray-200"}`}
+                      >
+                        {c.name} · {p.name}
+                      </Link>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             ))}
           </div>
         )}
-      </div>
-    );
-  }
-
-  return (
-    <Link
-      href={item.href!}
-      className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition ${
-        isActive
-          ? "bg-white/15 text-white font-semibold"
-          : "text-gray-400 hover:bg-white/10 hover:text-white"
-      }`}
-    >
-      <span>{item.icon}</span>
-      <span>{item.label}</span>
-      {isActive && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400" />}
-    </Link>
-  );
-}
-
-export default function Sidebar() {
-  const role = useRole();
-
-  return (
-    <aside className="w-60 min-h-screen bg-[#0f172a] flex flex-col px-3 py-6">
-      {/* Logo */}
-      <div className="px-3 mb-8">
-        <p className="text-white font-bold text-lg tracking-tight">Companies</p>
-        <p className="text-gray-500 text-xs">Management Dashboard</p>
-      </div>
-
-      {/* Nav */}
-      <nav className="flex-1 space-y-1">
-        {NAV.map((item) => (
-          <NavLink key={item.label} item={item} role={role} />
-        ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-3 pt-4 border-t border-white/10">
-        <p className="text-xs text-gray-500">Supra Pacific · v1.0</p>
+      <div className="pt-4 border-t border-white/10">
+        <p className="text-sm font-medium">{user?.name ?? "User"}</p>
+        <p className="text-xs text-gray-400 mb-2">{role ?? "Unknown"}</p>
+        <button onClick={() => signOut({ callbackUrl: "/login" })} className="w-full bg-white/10 hover:bg-white/20 rounded-lg px-3 py-2 text-sm">
+          Sign Out
+        </button>
       </div>
     </aside>
   );

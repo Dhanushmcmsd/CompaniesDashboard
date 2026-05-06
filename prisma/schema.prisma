@@ -18,10 +18,19 @@ model GoldLoanBalance {
   loanAccountNumber String    @unique
   customerId        String?
   branchName        String?
+  branchState       String?
+  branchRegion      String?
+  schemeName        String?
   disbursementDate  DateTime?
+  maturityDate      DateTime?
+  closureDate       DateTime?
+  closureReason     String?
   closingBalance    Float?
+  totalOutstanding  Float?
   goldWeight        Float?
+  goldPurity        Float?
   interestRate      Float?
+  presentRate       Float?
   dpd               Int?
   principalCr       Float?
   createdAt         DateTime  @default(now())
@@ -47,4 +56,41 @@ model GoldLoanTransaction {
   @@index([loanAccountNumber])
   @@index([transactionDate])
   @@map("gold_loan_transaction")
+}
+
+enum Role {
+  PENDING
+  EMPLOYEE
+  MANAGEMENT
+  ADMIN
+}
+
+model User {
+  id         String          @id @default(cuid())
+  name       String
+  email      String          @unique
+  password   String
+  role       Role            @default(PENDING)
+  company    String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  approvedAt DateTime?
+  approvedBy String?
+  requests   AccessRequest[]
+
+  @@map("users")
+}
+
+model AccessRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  requestedAt DateTime @default(now())
+  status     String   @default("pending")
+  company    String
+  note       String?
+  reviewedAt DateTime?
+  reviewedBy String?
+
+  @@map("access_requests")
 }
