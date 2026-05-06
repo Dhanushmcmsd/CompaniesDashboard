@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState } from 'react';
 
-export type Period = "FTD" | "MTD" | "YTD";
+export type Period = 'FTD' | 'MTD' | 'YTD';
 
 interface PeriodContextValue {
   period: Period;
@@ -12,7 +12,7 @@ interface PeriodContextValue {
 const PeriodContext = createContext<PeriodContextValue | undefined>(undefined);
 
 export function PeriodProvider({ children }: { children: React.ReactNode }) {
-  const [period, setPeriod] = useState<Period>("MTD");
+  const [period, setPeriod] = useState<Period>('MTD');
   return (
     <PeriodContext.Provider value={{ period, setPeriod }}>
       {children}
@@ -22,6 +22,6 @@ export function PeriodProvider({ children }: { children: React.ReactNode }) {
 
 export function usePeriod(): PeriodContextValue {
   const ctx = useContext(PeriodContext);
-  if (!ctx) throw new Error("usePeriod must be used inside PeriodProvider");
+  if (!ctx) throw new Error('usePeriod must be used inside <PeriodProvider>');
   return ctx;
 }
