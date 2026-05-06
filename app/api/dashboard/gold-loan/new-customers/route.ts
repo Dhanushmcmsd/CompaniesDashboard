@@ -1,27 +1,22 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { resolveSnapshot } from '@/lib/snapshotQuery';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const snap = await prisma.goldLoanSnapshot.findFirst({
-      where: { company: "supra" },
-      orderBy: { createdAt: "desc" },
-    });
+    const { searchParams } = new URL(req.url);
+    const snap = await resolveSnapshot('supra', searchParams);
 
-    if (!snap) return NextResponse.json({ newCustomers: 0, totalCustomers: 0 });
+    if (!snap) return NextResponse.json({ totalCustomers: 0, totalAccounts: 0, newCustomers: 0, mtdDisbursements: 0 });
 
-    // New customers = accounts with disbursement today (FTD)
-    // Approximated from newDisbursements > 0 indicator in snapshot
     return NextResponse.json({
-      totalCustomers: snap.totalCustomers,
-      totalAccounts:  snap.totalAccounts,
-      // Row-level new customer detail requires balance file re-upload
-      newCustomers:   snap.newDisbursements > 0 ? "See FTD disbursement" : 0,
+      totalCustomers:   snap.totalCustomers,
+      totalAccounts:    snap.totalAccounts,
+      newCustomers:     snap.newDisbursements > 0 ? 'See FTD disbursement' : 0,
       mtdDisbursements: snap.mtdDisbursements,
     });
   } catch (e) {

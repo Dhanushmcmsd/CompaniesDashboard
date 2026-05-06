@@ -1,6 +1,3 @@
-// This is your Prisma schema file.
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,66 +9,69 @@ datasource db {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Gold Loan — KPI Snapshot
-// Stores the fully calculated dashboard metrics per upload.
-// Raw Excel rows are NEVER stored — all calculations happen in-memory.
+// One snapshot is saved per upload. Each upload is tagged with snapshotDate
+// (the date the file was uploaded = FTD day). All period queries filter by date.
 // ─────────────────────────────────────────────────────────────────────────────
 model GoldLoanSnapshot {
   id            String   @id @default(cuid())
   uploadBatchId String   @unique
   company       String
   reportDate    DateTime?
+  // Date the file was uploaded — used for FTD/MTD/YTD period filtering
+  snapshotDate  DateTime @default(now())
 
-  // ── Executive Summary ─────────────────────────────────────────────────────
-  totalAUM              Float   // SUM(closingBalance)
-  totalAccounts         Int     // COUNT(loanAccountNumber)
-  totalCustomers        Int     // COUNT DISTINCT customerId
-  avgTicketSize         Float   // totalAUM / totalAccounts
-  avgYield              Float   // AVG(interestRate)
-  totalGoldWeight       Float   // SUM(goldWeight)
-  avgGoldWeightPerLoan  Float   // totalGoldWeight / totalAccounts
-  avgLTV                Float   // AVG(closingBalance / (goldWeight * presentRate) * 100)
-  avgPresentRate        Float   // AVG(presentRate)
-  avgGoldValuePerLoan   Float   // AVG(goldWeight * presentRate)
-  newDisbursements      Float   // SUM(disbursedAmount) for today's disbursementDate
-  mtdDisbursements      Float   // SUM(disbursedAmount) for current month
-  ytdDisbursements      Float   // SUM(disbursedAmount) for current year
+  // ── Executive Summary ─────────────────────────────────────────────────────────────────
+  totalAUM              Float
+  totalAccounts         Int
+  totalCustomers        Int
+  avgTicketSize         Float
+  avgYield              Float
+  totalGoldWeight       Float
+  avgGoldWeightPerLoan  Float
+  avgLTV                Float
+  avgPresentRate        Float
+  avgGoldValuePerLoan   Float
+  newDisbursements      Float   // FTD: disbursed on snapshotDate
+  mtdDisbursements      Float   // MTD: disbursed in snapshotDate's month
+  ytdDisbursements      Float   // YTD: disbursed in snapshotDate's year
 
-  // ── NPA & Risk ────────────────────────────────────────────────────────────
-  gnpaAmount            Float   // SUM(closingBalance WHERE dpd > 90)
-  gnpaPct               Float   // gnpaAmount / totalAUM * 100
-  nnpaPct               Float   // gnpaPct * 0.65 (approx until NNPA source available)
+  // ── NPA & Risk ───────────────────────────────────────────────────────────────────────────
+  gnpaAmount            Float
+  gnpaPct               Float
+  nnpaPct               Float
 
-  // ── Overdue & Collection ──────────────────────────────────────────────────
-  totalOverdue          Float   // SUM(closingBalance WHERE dpd > 0)
-  overdueCollection     Float   // SUM(principalCr + interestRcvd WHERE dpd > 0)
-  collectionEfficiency  Float   // overdueCollection / totalOverdue * 100
-  overduePercent        Float   // totalOverdue / totalAUM * 100
+  // ── Overdue & Collection ───────────────────────────────────────────────────────────────
+  totalOverdue          Float
+  overdueCollection     Float
+  collectionEfficiency  Float
+  overduePercent        Float
 
-  // ── DPD Buckets ───────────────────────────────────────────────────────────
-  bucket0to30           Float   // SUM(closingBalance WHERE dpd 1-30)
-  bucket31to60          Float   // SUM(closingBalance WHERE dpd 31-60)
-  bucket61to90          Float   // SUM(closingBalance WHERE dpd 61-90)
-  bucket90plus          Float   // SUM(closingBalance WHERE dpd > 90)
+  // ── DPD Buckets ──────────────────────────────────────────────────────────────────────────
+  bucket0to30           Float
+  bucket31to60          Float
+  bucket61to90          Float
+  bucket90plus          Float
 
-  // ── Branch & Product breakdown (stored as JSON) ───────────────────────────
+  // ── Branch & Product breakdown (JSON) ────────────────────────────────────────────
   branchAUM             Json    // [{branch, aum, accounts}]
   productAUM            Json    // [{scheme, aum, accounts}]
   branchDisbursement    Json    // [{branch, ftd, mtd, ytd}]
   branchNPA             Json    // [{branch, gnpaAmount, gnpaPct}]
   branchGoldWeight      Json    // [{branch, totalGoldWeight, avgPerLoan}]
 
-  // ── Alerts ────────────────────────────────────────────────────────────────
-  highLTVAccounts       Int     // COUNT WHERE (closingBalance / (goldWeight * presentRate)) > 0.85
-  goldValueMismatch     Int     // COUNT WHERE closingBalance > (goldWeight * presentRate)
-  auctionCases          Int     // COUNT WHERE dpd > 90 (proxy)
+  // ── Alerts ──────────────────────────────────────────────────────────────────────────────
+  highLTVAccounts       Int
+  goldValueMismatch     Int
+  auctionCases          Int
 
   createdAt DateTime @default(now())
 
+  @@index([company, snapshotDate])
   @@map("gold_loan_snapshots")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Upload Batch — tracks every file upload attempt
+// Upload Batch
 // ─────────────────────────────────────────────────────────────────────────────
 model UploadBatch {
   id           String    @id @default(cuid())
@@ -83,15 +83,12 @@ model UploadBatch {
   uploadedBy   String
   uploadedAt   DateTime  @default(now())
   rowCount     Int       @default(0)
-  status       String    @default("pending") // pending | done | error
+  status       String    @default("pending")
   errors       Json?
 
   @@map("upload_batches")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Users & Auth (unchanged)
-// ─────────────────────────────────────────────────────────────────────────────
 enum Role {
   PENDING
   EMPLOYEE

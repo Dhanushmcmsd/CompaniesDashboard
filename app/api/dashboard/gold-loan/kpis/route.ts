@@ -1,28 +1,27 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { resolveSnapshot } from '@/lib/snapshotQuery';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const snap = await prisma.goldLoanSnapshot.findFirst({
-      where: { company: "supra" },
-      orderBy: { createdAt: "desc" },
-    });
+    const { searchParams } = new URL(req.url);
+    const snap = await resolveSnapshot('supra', searchParams);
 
     if (!snap) return NextResponse.json({ kpis: null });
 
     return NextResponse.json({
       kpis: {
         totalAUM:             snap.totalAUM,
-        totalAccounts:        snap.totalAccounts,
         totalCustomers:       snap.totalCustomers,
+        totalAccounts:        snap.totalAccounts,
         avgTicketSize:        snap.avgTicketSize,
         avgYield:             snap.avgYield,
         gnpaPct:              snap.gnpaPct,
+        gnpaAmount:           snap.gnpaAmount,
         nnpaPct:              snap.nnpaPct,
         collectionEfficiency: snap.collectionEfficiency,
         avgLTV:               snap.avgLTV,
@@ -32,7 +31,8 @@ export async function GET() {
         newDisbursements:     snap.newDisbursements,
         mtdDisbursements:     snap.mtdDisbursements,
         ytdDisbursements:     snap.ytdDisbursements,
-        reportDate:           snap.reportDate,
+        totalOverdue:         snap.totalOverdue,
+        overduePercent:       snap.overduePercent,
       },
     });
   } catch (e) {
