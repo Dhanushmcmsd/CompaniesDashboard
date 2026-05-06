@@ -5,6 +5,13 @@ import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
+function getHomeByRole(role?: string | null) {
+  if (role === "ADMIN") return "/admin";
+  if (role === "EMPLOYEE") return "/upload";
+  if (role === "MANAGEMENT") return "/dashboard";
+  return "/login";
+}
+
 export default function LoginPage() {
   const params = useSearchParams();
   const [email, setEmail] = useState("");
@@ -27,7 +34,6 @@ export default function LoginPage() {
     const result = await signIn("credentials", {
       email,
       password,
-      callbackUrl: "/dashboard",
       redirect: false,
     });
 
@@ -38,9 +44,16 @@ export default function LoginPage() {
       return;
     }
 
-    if (result?.url) {
-      window.location.href = result.url;
+    const sessionRes = await fetch("/api/auth/session");
+    const session = await sessionRes.json();
+    const role = session?.user?.role as string | undefined;
+
+    if (role === "PENDING") {
+      window.location.href = "/login?error=pending";
+      return;
     }
+
+    window.location.href = getHomeByRole(role);
   }
 
   return (

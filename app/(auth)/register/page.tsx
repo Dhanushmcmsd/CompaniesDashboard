@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
-const COMPANIES = [
-  "Supra Pacific",
-  "Ideal Supermarket",
-  "CFCICI",
-  "Central Bazar",
-  "Centora",
-  "Central Bio Fuel",
+const COMPANY_OPTIONS = [
+  { label: "Supra Pacific", value: "supra" },
+  { label: "Ideal Supermarket", value: "ideal" },
+  { label: "CFCICI", value: "cfcici" },
+  { label: "Central Bazar", value: "centralbazar" },
+  { label: "Centora", value: "centora" },
+  { label: "Central Bio Fuel", value: "centralbiofuel" },
 ];
 
 export default function RegisterPage() {
@@ -17,7 +17,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [company, setCompany] = useState(COMPANIES[0]);
+  const [company, setCompany] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -63,8 +63,9 @@ export default function RegisterPage() {
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" required className="w-full border border-gray-300 rounded-xl px-3 py-2" />
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Password" required className="w-full border border-gray-300 rounded-xl px-3 py-2" />
             <input value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} type="password" placeholder="Confirm Password" required className="w-full border border-gray-300 rounded-xl px-3 py-2" />
-            <select value={company} onChange={(e) => setCompany(e.target.value)} className="w-full border border-gray-300 rounded-xl px-3 py-2">
-              {COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            <select value={company} onChange={(e) => setCompany(e.target.value)} required className="w-full border border-gray-300 rounded-xl px-3 py-2">
+              <option value="" disabled>Select Company</option>
+              {COMPANY_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note to admin (optional)" className="w-full border border-gray-300 rounded-xl px-3 py-2 min-h-24" />
             <button disabled={loading} className="w-full bg-[#0f172a] text-white rounded-xl py-2.5 hover:bg-[#1e3a5f] disabled:opacity-60">

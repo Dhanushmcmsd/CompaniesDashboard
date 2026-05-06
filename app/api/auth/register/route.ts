@@ -5,9 +5,13 @@ import { prisma } from "@/lib/prisma";
 export async function POST(req: Request) {
   try {
     const { name, email, password, confirmPassword, company, note } = await req.json();
+    const allowedCompanies = ["supra", "ideal", "cfcici", "centralbazar", "centora", "centralbiofuel"];
 
     if (!name || !email || !password || !confirmPassword || !company) {
       return NextResponse.json({ error: "All required fields must be provided" }, { status: 400 });
+    }
+    if (!allowedCompanies.includes(company)) {
+      return NextResponse.json({ error: "Invalid company" }, { status: 400 });
     }
 
     if (password !== confirmPassword) {

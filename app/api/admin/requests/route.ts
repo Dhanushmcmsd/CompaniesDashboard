@@ -12,7 +12,15 @@ export async function GET() {
   const requests = await prisma.accessRequest.findMany({
     include: {
       user: {
-        select: { name: true, email: true, role: true, company: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          company: true,
+          approvedAt: true,
+          approvedBy: true,
+        },
       },
     },
     orderBy: { requestedAt: "desc" },
@@ -38,9 +46,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Request not found" }, { status: 404 });
   }
 
+  const reviewer = session.user.email ?? "admin";
+
   if (action === "approve") {
     if (!role || !["EMPLOYEE", "MANAGEMENT"].includes(role)) {
       return NextResponse.json({ error: "Valid role required for approval" }, { status: 400 });
+    }
+    if (!company || typeof company !== "string") {
+      return NextResponse.json({ error: "Company slug is required for approval" }, { status: 400 });
     }
 
     await prisma.$transaction([
@@ -48,9 +61,9 @@ export async function POST(req: Request) {
         where: { id: existing.userId },
         data: {
           role,
-          company: company ?? existing.company,
+          company,
           approvedAt: new Date(),
-          approvedBy: session.user.email,
+          approvedBy: reviewer,
         },
       }),
       prisma.accessRequest.update({
@@ -58,7 +71,7 @@ export async function POST(req: Request) {
         data: {
           status: "approved",
           reviewedAt: new Date(),
-          reviewedBy: session.user.email,
+          reviewedBy: reviewer,
         },
       }),
     ]);
@@ -68,7 +81,7 @@ export async function POST(req: Request) {
       data: {
         status: "rejected",
         reviewedAt: new Date(),
-        reviewedBy: session.user.email,
+        reviewedBy: reviewer,
       },
     });
   } else {

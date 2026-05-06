@@ -11,12 +11,16 @@ export default function ManagementLayout({ children }: { children: React.ReactNo
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
-    if (status === "authenticated" && !["MANAGEMENT", "ADMIN"].includes(data.user.role)) {
-      router.replace("/login");
+    if (status === "authenticated" && data.user.role !== "MANAGEMENT") {
+      router.replace("/dashboard");
     }
   }, [status, data, router]);
 
   if (status !== "authenticated") {
+    return <div className="min-h-screen bg-[#f1f5f9] animate-pulse" />;
+  }
+
+  if (data.user.role !== "MANAGEMENT") {
     return <div className="min-h-screen bg-[#f1f5f9] animate-pulse" />;
   }
 

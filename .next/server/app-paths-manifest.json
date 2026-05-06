@@ -1,6 +1,8 @@
 {
-  "/dashboard/page": "app/dashboard/page.js",
-  "/page": "app/page.js",
-  "/dashboard/supra/gold-loan/upload/page": "app/dashboard/supra/gold-loan/upload/page.js",
-  "/dashboard/supra/gold-loan/page": "app/dashboard/supra/gold-loan/page.js"
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/upload/gold-loan/route": "app/api/upload/gold-loan/route.js",
+  "/admin/page": "app/admin/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
+  "/(employee)/upload/supra/gold-loan/page": "app/(employee)/upload/supra/gold-loan/page.js",
+  "/(employee)/upload/page": "app/(employee)/upload/page.js"
 }

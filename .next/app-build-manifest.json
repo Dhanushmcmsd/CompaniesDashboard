@@ -11,30 +11,40 @@
       "static/css/app/layout.css",
       "static/chunks/app/layout.js"
     ],
-    "/dashboard/page": [
+    "/admin/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/page.js"
+      "static/chunks/app/admin/page.js"
     ],
-    "/dashboard/layout": [
+    "/admin/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/layout.js"
+      "static/chunks/app/admin/layout.js"
     ],
-    "/dashboard/supra/gold-loan/upload/page": [
+    "/(auth)/login/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/supra/gold-loan/upload/page.js"
+      "static/chunks/app/(auth)/login/page.js"
     ],
-    "/dashboard/supra/gold-loan/layout": [
+    "/(auth)/layout": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/supra/gold-loan/layout.js"
+      "static/chunks/app/(auth)/layout.js"
     ],
-    "/dashboard/supra/gold-loan/page": [
+    "/(employee)/upload/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/dashboard/supra/gold-loan/page.js"
+      "static/chunks/app/(employee)/upload/page.js"
+    ],
+    "/(employee)/layout": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(employee)/layout.js"
+    ],
+    "/(employee)/upload/supra/gold-loan/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(employee)/upload/supra/gold-loan/page.js"
     ]
   }
 }

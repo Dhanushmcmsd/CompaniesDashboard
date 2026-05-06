@@ -10,12 +10,13 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
-    if (status === "authenticated" && !["EMPLOYEE", "ADMIN"].includes(data.user.role)) {
-      router.replace("/login");
+    if (status === "authenticated" && data.user.role !== "EMPLOYEE") {
+      router.replace("/upload");
     }
   }, [status, data, router]);
 
   if (status !== "authenticated") return <div className="min-h-screen bg-[#f8fafc] animate-pulse" />;
+  if (data.user.role !== "EMPLOYEE") return <div className="min-h-screen bg-[#f8fafc] animate-pulse" />;
 
   return (
     <div className="min-h-screen bg-[#f8fafc]">

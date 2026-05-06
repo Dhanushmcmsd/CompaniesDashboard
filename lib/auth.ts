@@ -16,10 +16,7 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid email or password");
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-        });
-
+        const user = await prisma.user.findUnique({ where: { email: credentials.email } });
         if (!user) throw new Error("Invalid email or password");
 
         const ok = await bcrypt.compare(credentials.password, user.password);
@@ -44,6 +41,8 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.name = user.name;
+        token.email = user.email;
         token.role = (user as { role?: string }).role ?? "PENDING";
         token.company = (user as { company?: string | null }).company ?? null;
       }
@@ -52,6 +51,8 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id;
+        session.user.name = token.name ?? session.user.name;
+        session.user.email = token.email ?? session.user.email;
         session.user.role = token.role;
         session.user.company = token.company;
       }
