@@ -1,0 +1,50 @@
+// This is your Prisma schema file.
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Gold Loan — Loan Balance Statement
+// ─────────────────────────────────────────────
+model GoldLoanBalance {
+  id                String    @id @default(cuid())
+  loanAccountNumber String    @unique
+  customerId        String?
+  branchName        String?
+  disbursementDate  DateTime?
+  closingBalance    Float?
+  goldWeight        Float?
+  interestRate      Float?
+  dpd               Int?
+  principalCr       Float?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("gold_loan_balance")
+}
+
+// ─────────────────────────────────────────────
+// Gold Loan — Transaction Statement
+// ─────────────────────────────────────────────
+model GoldLoanTransaction {
+  id                   String   @id @default(cuid())
+  loanAccountNumber    String
+  transactionDate      DateTime
+  principalReceived    Float?
+  interestReceived     Float?
+  otherCharges         Float?
+  totalAmountReceived  Float?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([loanAccountNumber])
+  @@index([transactionDate])
+  @@map("gold_loan_transaction")
+}
