@@ -3,6 +3,7 @@
 import PeriodSelector from "@/components/gold-loan/PeriodSelector";
 import ExecutiveSummaryGrid from "@/components/gold-loan/ExecutiveSummaryGrid";
 import DisbursementSection from "@/components/gold-loan/DisbursementSection";
+import OverdueSection from "@/components/gold-loan/OverdueSection";
 
 function today(): string {
   return new Date().toLocaleDateString("en-IN", {
@@ -47,7 +48,7 @@ export default function GoldLoanPage() {
         {/* §3 Overdue & Collection Overview */}
         <section id="overdue-collection">
           <SectionHeading>Overdue &amp; Collection Overview</SectionHeading>
-          <Placeholder label="Overdue Bucket Chart + Collection Efficiency" tall />
+          <OverdueSection />
         </section>
 
         {/* §4 New Customers */}
