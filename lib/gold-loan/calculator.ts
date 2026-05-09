@@ -16,12 +16,41 @@
  *   Avg LTV            = AVG(closingBalance / (goldWeight * presentRate) * 100)
  *
  * v2 — accepts optional txnRows for cross-referenced collection efficiency
+ * v3 — adds calculateKPIsFromTransaction() for transaction-statement-first workflows
  */
 
 import {
   calculateTransactionKPIs,
   type TransactionKPISnapshot,
 } from './transaction-calculator';
+
+// ─── TransactionKPIs ─────────────────────────────────────────────────────────
+// Lightweight output type for calculateKPIsFromTransaction().
+// Mirrors the fields your API/dashboard consumers expect directly,
+// without exposing the full TransactionKPISnapshot internals.
+
+export type TransactionKPIs = {
+  /** SUM of principalDebit (disbursement rows: principalDebit > 0) */
+  totalDisbursed: number;
+  /** SUM of principalCr on collection rows */
+  totalPrincipalCollected: number;
+  /** SUM of interestRcvd on collection rows */
+  totalInterestCollected: number;
+  /** SUM of totalAmountReceived on collection rows */
+  totalCollected: number;
+  /** SUM of totalAmountReceived on collection rows for DPD>0 accounts only */
+  overdueCollectionFromTxn: number;
+  /** Per-branch disbursement totals derived purely from the transaction file */
+  branchDisbursementFromTxn: BranchDisbFromTxn[];
+};
+
+export type BranchDisbFromTxn = {
+  branch: string;
+  totalDisbursed: number;
+  disbursementCount: number;
+};
+
+// ─── KPISnapshot ─────────────────────────────────────────────────────────────
 
 export type KPISnapshot = {
   totalAUM: number
@@ -66,6 +95,8 @@ export type BranchDisb  = { branch: string; ftd: number; mtd: number; ytd: numbe
 export type BranchNPA   = { branch: string; gnpaAmount: number; gnpaPct: number }
 export type BranchGold  = { branch: string; totalGoldWeight: number; avgPerLoan: number }
 
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
 function safe(n: unknown): number {
   const v = Number(n)
   return Number.isFinite(v) ? v : 0
@@ -74,6 +105,27 @@ function safe(n: unknown): number {
 function avg(values: number[]): number {
   if (!values.length) return 0
   return values.reduce((a, b) => a + b, 0) / values.length
+}
+
+/** SUM a numeric field across an array of rows */
+function sum(rows: Record<string, unknown>[], field: string): number {
+  return rows.reduce((s, r) => s + safe(r[field]), 0);
+}
+
+/** Group disbursement rows by branch and sum totalDisbursed */
+function groupByBranch(rows: Record<string, unknown>[]): BranchDisbFromTxn[] {
+  const map = new Map<string, { totalDisbursed: number; disbursementCount: number }>();
+  for (const r of rows) {
+    const branch = String(r.branchName ?? 'Unknown');
+    const existing = map.get(branch) ?? { totalDisbursed: 0, disbursementCount: 0 };
+    map.set(branch, {
+      totalDisbursed:    existing.totalDisbursed    + safe(r.disbursedAmount),
+      disbursementCount: existing.disbursementCount + 1,
+    });
+  }
+  return Array.from(map.entries())
+    .map(([branch, v]) => ({ branch, ...v }))
+    .sort((a, b) => b.totalDisbursed - a.totalDisbursed);
 }
 
 function isToday(date: Date | null): boolean {
@@ -104,6 +156,64 @@ function isYTD(date: Date | null): boolean {
     date <= now
   )
 }
+
+// ─── calculateKPIsFromTransaction ────────────────────────────────────────────
+/**
+ * Transaction-statement-first KPI extraction.
+ *
+ * Call this when you have the transaction file but may not have the balance
+ * sheet (or want the transaction file's numbers independently).
+ *
+ * Disbursement rows  = principalDebit > 0  (covers Tran Mode A and any row
+ *                      where the bank debited principal, regardless of mode)
+ * Collection rows    = principalCr > 0 OR interestRcvd > 0
+ *
+ * @param txnRows               Parsed rows from the transaction statement Excel
+ * @param overdueAccountNumbers Set of account numbers with DPD > 0 from the
+ *                              balance sheet. Pass an empty Set when running
+ *                              without a balance sheet — overdueCollectionFromTxn
+ *                              will be 0 in that case.
+ */
+export function calculateKPIsFromTransaction(
+  txnRows: Record<string, unknown>[],
+  overdueAccountNumbers: Set<string>,
+): TransactionKPIs {
+  if (!txnRows.length) {
+    return {
+      totalDisbursed: 0,
+      totalPrincipalCollected: 0,
+      totalInterestCollected: 0,
+      totalCollected: 0,
+      overdueCollectionFromTxn: 0,
+      branchDisbursementFromTxn: [],
+    };
+  }
+
+  // Split disbursements vs collections
+  // disbursementRows: any row where principal was debited (outflow)
+  const disbRows = txnRows.filter((r) => safe(r.disbursedAmount) > 0 || safe(r.principalDr) > 0);
+
+  // collectionRows: any row where principal or interest was received (inflow)
+  const collRows = txnRows.filter(
+    (r) => safe(r.principalCr) > 0 || safe(r.interestRcvd) > 0,
+  );
+
+  // Overdue collection: filter collection rows to DPD>0 accounts only
+  const overdueCollRows = collRows.filter((r) =>
+    overdueAccountNumbers.has(String(r.loanAccountNumber ?? '').trim()),
+  );
+
+  return {
+    totalDisbursed:           sum(disbRows,        'disbursedAmount'),
+    totalPrincipalCollected:  sum(collRows,        'principalCr'),
+    totalInterestCollected:   sum(collRows,        'interestRcvd'),
+    totalCollected:           sum(collRows,        'totalAmountReceived'),
+    overdueCollectionFromTxn: sum(overdueCollRows, 'totalAmountReceived'),
+    branchDisbursementFromTxn: groupByBranch(disbRows),
+  };
+}
+
+// ─── calculateKPIs ───────────────────────────────────────────────────────────
 
 export function calculateKPIs(
   rows: Record<string, unknown>[],
