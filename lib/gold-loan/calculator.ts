@@ -14,7 +14,14 @@
  *   DPD buckets        = closingBalance filtered by dpd range
  *   Collection eff.    = overdueCollection / totalOverdue * 100
  *   Avg LTV            = AVG(closingBalance / (goldWeight * presentRate) * 100)
+ *
+ * v2 — accepts optional txnRows for cross-referenced collection efficiency
  */
+
+import {
+  calculateTransactionKPIs,
+  type TransactionKPISnapshot,
+} from './transaction-calculator';
 
 export type KPISnapshot = {
   totalAUM: number
@@ -49,6 +56,8 @@ export type KPISnapshot = {
   highLTVAccounts: number
   goldValueMismatch: number
   auctionCases: number
+  /** Present only when a transaction statement is also uploaded */
+  transactionKPIs?: TransactionKPISnapshot
 }
 
 export type BranchAUM   = { branch: string; aum: number; accounts: number }
@@ -97,7 +106,8 @@ function isYTD(date: Date | null): boolean {
 }
 
 export function calculateKPIs(
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
+  txnRows: Record<string, unknown>[] = [],
 ): KPISnapshot {
   const n = rows.length
   if (!n) {
@@ -137,7 +147,9 @@ export function calculateKPIs(
     .filter((v) => v > 0)
   const avgLTV = avg(ltvValues)
 
-  // ── Disbursements (FTD / MTD / YTD) ─────────────────────────────────────
+  // ── Disbursements (FTD / MTD / YTD) — from balance sheet ─────────────────
+  // NOTE: if txnRows are provided, transactionKPIs.ftdDisbursement etc. are
+  // more accurate (sourced from TranDate + Tran Mode = 'A').
   let newDisbursements = 0
   let mtdDisbursements = 0
   let ytdDisbursements = 0
@@ -156,14 +168,22 @@ export function calculateKPIs(
   const nnpaPct     = gnpaPct * 0.65 // approximation until NNPA source available
 
   // ── Overdue (DPD > 0) ────────────────────────────────────────────────────
-  const overdueRows        = rows.filter((r) => safe(r.dpd) > 0)
-  const totalOverdue       = overdueRows.reduce((s, r) => s + safe(r.closingBalance), 0)
-  const overdueCollection  = overdueRows.reduce(
-    (s, r) => s + safe(r.principalCr) + safe(r.interestRcvd), 0
-  )
+  const overdueRows   = rows.filter((r) => safe(r.dpd) > 0)
+  const totalOverdue  = overdueRows.reduce((s, r) => s + safe(r.closingBalance), 0)
+  const overduePercent = totalAUM > 0 ? (totalOverdue / totalAUM) * 100 : 0
+
+  // Overdue collection: prefer transaction-file cross-reference when available,
+  // fall back to balance-sheet principalCr + interestRcvd columns.
+  const txnKPIs = txnRows.length
+    ? calculateTransactionKPIs(txnRows, rows, totalOverdue)
+    : undefined;
+
+  const overdueCollection = txnKPIs
+    ? txnKPIs.overdueCollection
+    : overdueRows.reduce((s, r) => s + safe(r.principalCr) + safe(r.interestRcvd), 0);
+
   const collectionEfficiency = totalOverdue > 0
     ? (overdueCollection / totalOverdue) * 100 : 0
-  const overduePercent     = totalAUM > 0 ? (totalOverdue / totalAUM) * 100 : 0
 
   // ── DPD Buckets ──────────────────────────────────────────────────────────
   const bucket0to30  = rows
@@ -248,7 +268,7 @@ export function calculateKPIs(
   }))
 
   // ── Alerts ────────────────────────────────────────────────────────────────
-  const highLTVAccounts  = rows.filter((r) => {
+  const highLTVAccounts = rows.filter((r) => {
     const gv = safe(r.goldWeight) * safe(r.presentRate)
     return gv > 0 && (safe(r.closingBalance) / gv) > 0.85
   }).length
@@ -269,6 +289,7 @@ export function calculateKPIs(
     bucket0to30, bucket31to60, bucket61to90, bucket90plus,
     branchAUM, productAUM, branchDisbursement, branchNPA, branchGoldWeight,
     highLTVAccounts, goldValueMismatch, auctionCases,
+    transactionKPIs: txnKPIs,
   }
 }
 
