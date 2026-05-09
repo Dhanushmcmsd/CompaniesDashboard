@@ -24,16 +24,16 @@ const FIELD_ALIASES: Record<string, string[]> = {
     "loan account number",
     "account num",
   ],
-  customerId: ["customer id", "customer code", "cust id"],
+  customerId: ["customer number", "customer id", "customer code", "cust id"],
   customerName: ["customer name", "name"],
   branchName: ["branch name", "branch"],
-  disbursementDate: ["disbursment date", "disbursement date", "disb date"],
-  disbursedAmount: ["disbursed amount", "disbursement amount", "loan amount"],
+  disbursementDate: ["issue date", "disbursment date", "disbursement date", "disb date"],
+  disbursedAmount: ["issue amount", "disbursed amount", "disbursement amount", "principal debit", "loan amount"],
   closingBalance: ["closing balance", "closing balance cr", "principal closing amount", "balance"],
   openingBalance: ["opening balance"],
-  principalCr: ["principal cr", "principal received", "principal collection"],
+  principalCr: ["principal credit", "principal cr", "principal received", "principal collection"],
   principalDr: ["principal dr"],
-  interestRcvd: ["interest rcvd", "interest received", "total interest amount", "interest collection"],
+  interestRcvd: ["tot. intr. amount", "total interest amount", "intr. amount", "interest rcvd", "interest received", "interest collection"],
   interestRcvDuring: ["interest rcvd during"],
   interestRate: ["total interest rate", "interest rate", "yield"],
   goldWeight: ["gold wt", "gold weight", "net gold weight"],
@@ -41,7 +41,7 @@ const FIELD_ALIASES: Record<string, string[]> = {
   goldPurity: ["purity", "gold purity"],
   presentRate: ["present rate", "rate per gram", "gold rate"],
   dpd: ["dpd", "days past due", "days overdue"],
-  schemeName: ["scheme name", "product", "loan product"],
+  schemeName: ["loan type", "scheme name", "product", "loan product"],
   branchState: ["br state", "state"],
   branchRegion: ["br region", "region"],
   totalOutstanding: ["total outstanding", "loan outstanding"],
@@ -50,14 +50,16 @@ const FIELD_ALIASES: Record<string, string[]> = {
   inventoryDate: ["inventory date"],
   loanPeriod: ["loan period"],
   loanPeriodType: ["loan period type"],
-  totalAmountReceived: ["total amount received", "total amount", "collection amount"],
+  totalAmountReceived: ["amount received", "total amount received", "total amount", "collection amount"],
   otherCharges: ["other charges", "other charges due"],
-  transactionDate: ["transaction date", "date"],
+  transactionDate: ["trandate", "tran date", "transaction date", "date"],
+  tranMode: ["tran mode", "transaction mode", "mode"],
+  isClosed: ["closed", "loan closed", "is closed"],
 };
 
 const EXTRA_ALIASES: Record<string, string[]> = {
   schemeCode: ["scheme code"],
-  branchCode: ["br code", "branch code"],
+  branchCode: ["br. code", "br code", "branch code"],
   inventoryNo: ["inventory no", "inventory number"],
 };
 
@@ -185,17 +187,19 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
   }
 
   // --- File type detection ---
-  const hasAccount = Boolean(col.loanAccountNumber);
-  const hasClosing = Boolean(col.closingBalance);
-  const hasTxnDate = Boolean(col.transactionDate);
-  const hasTotalAmt = Boolean(col.totalAmountReceived);
+  const hasAccount    = Boolean(col.loanAccountNumber);
+  const hasClosing    = Boolean(col.closingBalance);
+  const hasTxnDate    = Boolean(col.transactionDate);
+  const hasTotalAmt   = Boolean(col.totalAmountReceived);
   const hasPrincipalCr = Boolean(col.principalCr);
-  const hasInterest = Boolean(col.interestRcvd);
+  const hasInterest   = Boolean(col.interestRcvd);
+  const hasDisbursedAmt = Boolean(col.disbursedAmount);
 
   let fileType: ParsedFileType = "unknown";
   if (hasAccount && hasClosing) {
     fileType = "balance";
-  } else if (hasAccount && hasTxnDate && hasTotalAmt) {
+  } else if (hasAccount && hasTxnDate && (hasTotalAmt || hasDisbursedAmt)) {
+    // Transaction statement: has TranDate + Amount Received (or Principal Debit for disbursements)
     fileType = "transaction";
   } else if (hasAccount && (hasPrincipalCr || hasTotalAmt) && hasInterest) {
     fileType = "interest-extract";
@@ -206,7 +210,7 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     errors.push(
       `Cannot detect file type for "${filename ?? "file"}". ` +
       `Recognized columns: ${seen}. ` +
-      `Expected: 'Account Num#' + 'Closing Balance' (balance), or 'Transaction Date' + 'Total Amount Received' (transaction).`
+      `Expected: 'Account Num#' + 'Closing Balance' (balance), or 'TranDate'/'Transaction Date' + 'Amount Received' (transaction), or principal/interest columns (interest-extract).`
     );
   }
 
@@ -239,6 +243,8 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     out.schemeCode        = toStringOrNull(read("schemeCode"));
     out.branchCode        = toStringOrNull(read("branchCode"));
     out.inventoryNo       = toStringOrNull(read("inventoryNo"));
+    out.tranMode          = toStringOrNull(read("tranMode"));
+    out.isClosed          = toStringOrNull(read("isClosed"));
 
     out.disbursementDate  = parseDate(read("disbursementDate"));
     out.transactionDate   = parseDate(read("transactionDate"));
