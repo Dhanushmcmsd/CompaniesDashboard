@@ -20,7 +20,7 @@ model GoldLoanSnapshot {
   // Date the file was uploaded — used for FTD/MTD/YTD period filtering
   snapshotDate  DateTime @default(now())
 
-  // ── Executive Summary ─────────────────────────────────────────────────────────────────
+  // ── Executive Summary ────────────────────────────────────────────────────────
   totalAUM              Float
   totalAccounts         Int
   totalCustomers        Int
@@ -35,31 +35,35 @@ model GoldLoanSnapshot {
   mtdDisbursements      Float   // MTD: disbursed in snapshotDate's month
   ytdDisbursements      Float   // YTD: disbursed in snapshotDate's year
 
-  // ── NPA & Risk ───────────────────────────────────────────────────────────────────────────
+  // ── NPA & Risk ──────────────────────────────────────────────────────────────────
   gnpaAmount            Float
   gnpaPct               Float
   nnpaPct               Float
 
-  // ── Overdue & Collection ───────────────────────────────────────────────────────────────
+  // ── Overdue & Collection ───────────────────────────────────────────────────────
   totalOverdue          Float
   overdueCollection     Float
   collectionEfficiency  Float
   overduePercent        Float
+  /// string[] — loanAccountNumbers where DPD > 0 at time of snapshot.
+  /// Used to cross-reference the transaction statement for accurate
+  /// overdueCollection when the transaction file is uploaded separately.
+  overdueAccountNumbers Json?   // string[]
 
-  // ── DPD Buckets ──────────────────────────────────────────────────────────────────────────
+  // ── DPD Buckets ────────────────────────────────────────────────────────────────
   bucket0to30           Float
   bucket31to60          Float
   bucket61to90          Float
   bucket90plus          Float
 
-  // ── Branch & Product breakdown (JSON) ────────────────────────────────────────────
+  // ── Branch & Product breakdown (JSON) ─────────────────────────────────────────
   branchAUM             Json    // [{branch, aum, accounts}]
   productAUM            Json    // [{scheme, aum, accounts}]
   branchDisbursement    Json    // [{branch, ftd, mtd, ytd}]
   branchNPA             Json    // [{branch, gnpaAmount, gnpaPct}]
   branchGoldWeight      Json    // [{branch, totalGoldWeight, avgPerLoan}]
 
-  // ── Alerts ──────────────────────────────────────────────────────────────────────────────
+  // ── Alerts ────────────────────────────────────────────────────────────────────
   highLTVAccounts       Int
   goldValueMismatch     Int
   auctionCases          Int
