@@ -8,7 +8,7 @@ import { calculateKPIs, calculateKPIsFromTransaction } from "@/lib/gold-loan/cal
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session || !["EMPLOYEE", "ADMIN"].includes(session.user.role)) {
+    if (!session || ![ "EMPLOYEE", "ADMIN" ].includes(session.user.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -64,7 +64,6 @@ export async function POST(req: Request) {
         });
 
         if (fileType === "unknown") {
-          // ── Unknown file type — log and fail ──────────────────────────────
           await prisma.uploadBatch.update({
             where: { id: batch.id },
             data:  { status: "error", errors: perFileErrors },
@@ -74,11 +73,8 @@ export async function POST(req: Request) {
         } else if (fileType === "balance") {
           // ── 3a. Balance sheet — calculate full KPI snapshot ───────────────
           const kpis = calculateKPIs(parsed.rows);
-
-          // overdueAccountNumbers extracted by the parser (DPD > 0 rows)
           const overdueAccountNumbers = parsed.overdueAccountNumbers; // string[]
 
-          // ── 4a. Upsert KPI snapshot (now includes overdueAccountNumbers) ──
           await prisma.goldLoanSnapshot.upsert({
             where:  { uploadBatchId: batch.id },
             create: {
@@ -117,7 +113,7 @@ export async function POST(req: Request) {
               highLTVAccounts:        kpis.highLTVAccounts,
               goldValueMismatch:      kpis.goldValueMismatch,
               auctionCases:           kpis.auctionCases,
-              overdueAccountNumbers,  // ← GAP 2 FIX: now stored
+              overdueAccountNumbers,
             },
             update: {
               reportDate:             parsed.reportDate,
@@ -153,7 +149,7 @@ export async function POST(req: Request) {
               highLTVAccounts:        kpis.highLTVAccounts,
               goldValueMismatch:      kpis.goldValueMismatch,
               auctionCases:           kpis.auctionCases,
-              overdueAccountNumbers,  // ← GAP 2 FIX: kept in sync on re-upload
+              overdueAccountNumbers,
             },
           });
 
@@ -166,21 +162,51 @@ export async function POST(req: Request) {
           status = "done";
 
         } else if (fileType === "transaction") {
-          // ── 3b. Transaction statement — GAP 1 FIX ────────────────────────
-          // Look up the latest balance-sheet snapshot for this company to get
-          // the overdue account set for cross-referencing collection efficiency.
-          const latestSnapshot = await prisma.goldLoanSnapshot.findFirst({
-            where:   { company: "supra" },
-            orderBy: { snapshotDate: "desc" },
-            select:  {
-              id:                    true,
-              totalOverdue:          true,
-              overdueAccountNumbers: true,
-            },
-          });
+          // ── 3b. Transaction statement ─────────────────────────────────────
+          // Fetch the latest balance-sheet snapshot.
+          // IMPORTANT: the overdueAccountNumbers column may not yet exist in the
+          // live DB if the migration hasn't been applied. We guard this with a
+          // two-phase fetch: first try with the column, then fall back without it.
+          let latestSnapshot: {
+            id: string;
+            totalOverdue: number;
+            overdueAccountNumbers?: unknown;
+          } | null = null;
 
-          // Build overdue Set from stored JSON (or empty if no balance sheet yet)
-          // overdueAccountNumbers is stored as string[] JSON in the DB
+          try {
+            // Phase 1 — try selecting overdueAccountNumbers (requires migration applied)
+            latestSnapshot = await prisma.goldLoanSnapshot.findFirst({
+              where:   { company: "supra" },
+              orderBy: { snapshotDate: "desc" },
+              select:  {
+                id:                    true,
+                totalOverdue:          true,
+                overdueAccountNumbers: true,
+              },
+            });
+          } catch (colErr) {
+            // Phase 2 — column doesn't exist yet; fetch without it
+            console.warn(
+              "[upload] overdueAccountNumbers column missing — DB migration not yet applied. " +
+              "Falling back to basic snapshot fetch. Run: npx prisma migrate deploy",
+              (colErr as Error).message,
+            );
+            perFileErrors.push(
+              "DB migration not yet applied (overdueAccountNumbers column missing). " +
+              "Run `npx prisma migrate deploy` on your server, then re-upload the balance " +
+              "sheet to enable accurate overdue cross-referencing."
+            );
+            const basicSnapshot = await prisma.goldLoanSnapshot.findFirst({
+              where:   { company: "supra" },
+              orderBy: { snapshotDate: "desc" },
+              select:  { id: true, totalOverdue: true },
+            });
+            latestSnapshot = basicSnapshot
+              ? { ...basicSnapshot, overdueAccountNumbers: null }
+              : null;
+          }
+
+          // Build overdue Set from stored JSON (empty if column missing or no balance sheet)
           const storedOverdue = latestSnapshot?.overdueAccountNumbers;
           const overdueArr: string[] = Array.isArray(storedOverdue)
             ? (storedOverdue as string[])
@@ -198,8 +224,6 @@ export async function POST(req: Request) {
           );
 
           // Patch the latest snapshot with transaction-derived collection efficiency.
-          // This updates overdueCollection + collectionEfficiency in place so the
-          // management dashboard immediately reflects the more accurate figure.
           if (latestSnapshot) {
             const totalOverdue = latestSnapshot.totalOverdue;
             const newODCollection = txnKPIs.overdueCollectionFromTxn;
@@ -212,11 +236,7 @@ export async function POST(req: Request) {
               data: {
                 overdueCollection:    newODCollection,
                 collectionEfficiency: newEfficiency,
-                // Store full transaction KPI breakdown as JSON in branchDisbursement
-                // so branch-disbursement dashboard endpoint picks it up automatically.
-                // The balance-sheet branchDisbursement (FTD/MTD/YTD buckets) is
-                // preserved as a separate key below when both are available.
-                branchDisbursement: txnKPIs.branchDisbursementFromTxn,
+                branchDisbursement:   txnKPIs.branchDisbursementFromTxn,
               },
             });
 
@@ -227,12 +247,11 @@ export async function POST(req: Request) {
           } else {
             perFileErrors.push(
               "No balance-sheet snapshot found for this company. " +
-              "Upload the balance sheet first so overdue accounts can be cross-referenced. " +
-              "Transaction KPIs calculated in memory but NOT stored."
+              "Upload the Loan Balance Statement first so overdue accounts can be " +
+              "cross-referenced. Transaction KPIs calculated in memory but NOT stored."
             );
           }
 
-          // Mark batch as done regardless — the txn file was processed successfully
           await prisma.uploadBatch.update({
             where: { id: batch.id },
             data:  { status: "done", errors: perFileErrors },
@@ -240,7 +259,7 @@ export async function POST(req: Request) {
           status = "done";
 
         } else {
-          // interest-extract or any future type — noted for later
+          // interest-extract or any future type
           perFileErrors.push(
             `File type "${fileType}" received. Interest-extract files will be processed ` +
             `in a future update. No data stored.`
