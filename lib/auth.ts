@@ -4,11 +4,16 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
+  // Explicitly set the secret so next-auth never falls back to an auto-generated
+  // one (which triggers the [NO_SECRET] warning in dev and breaks prod).
+  // The value comes from NEXTAUTH_SECRET in .env / Vercel env vars.
+  secret: process.env.NEXTAUTH_SECRET,
+
   providers: [
     CredentialsProvider({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        email:    { label: "Email",    type: "email"    },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
@@ -27,37 +32,40 @@ export const authOptions: NextAuthOptions = {
         }
 
         return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
+          id:      user.id,
+          name:    user.name,
+          email:   user.email,
+          role:    user.role,
           company: user.company,
         };
       },
     }),
   ],
+
   session: { strategy: "jwt" },
+
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
-        token.name = user.name;
-        token.email = user.email;
-        token.role = (user as { role?: string }).role ?? "PENDING";
+        token.id      = user.id;
+        token.name    = user.name;
+        token.email   = user.email;
+        token.role    = (user as { role?: string }).role ?? "PENDING";
         token.company = (user as { company?: string | null }).company ?? null;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id;
-        session.user.name = token.name ?? session.user.name;
-        session.user.email = token.email ?? session.user.email;
-        session.user.role = token.role;
+        session.user.id      = token.id;
+        session.user.name    = token.name    ?? session.user.name;
+        session.user.email   = token.email   ?? session.user.email;
+        session.user.role    = token.role;
         session.user.company = token.company;
       }
       return session;
     },
   },
+
   pages: { signIn: "/login" },
 };
