@@ -2,6 +2,7 @@
  * POST /api/upload/mf-loan
  * Smart detection: detects file type from column headers, no filename convention needed.
  * Returns detailed parse results including matched/missing columns per file.
+ * Fixed: uses real uploadBatch.id as uploadBatchId for snapshot.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession }          from 'next-auth';
@@ -29,7 +30,10 @@ export async function POST(req: NextRequest) {
     }
 
     const fd    = await req.formData();
-    const files = fd.getAll('files') as File[];
+    const files = [
+      ...fd.getAll('files').filter((f): f is File => f instanceof File),
+      ...fd.getAll('files[]').filter((f): f is File => f instanceof File),
+    ];
     if (!files.length) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
@@ -48,6 +52,7 @@ export async function POST(req: NextRequest) {
 
     let balanceRows: MfLoanBalanceRow[]     = [];
     let txnRows:     MfLoanTransactionRow[] = [];
+    let balanceBatchId: string | null = null;
     const snapshotDate = new Date();
 
     for (const file of files) {
@@ -80,7 +85,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      await prisma.uploadBatch.create({
+      const isError = detection.confidence === 'none' || errors.some((e) => !e.startsWith('Optional'));
+
+      const batch = await prisma.uploadBatch.create({
         data: {
           company:      'supra',
           portfolio:    'mf-loan',
@@ -88,10 +95,14 @@ export async function POST(req: NextRequest) {
           originalName: file.name,
           uploadedBy:   session.user.email ?? 'unknown',
           rowCount,
-          status:  detection.confidence === 'none' ? 'error' : errors.some((e) => !e.startsWith('Optional')) ? 'error' : 'done',
-          errors:  errors.length ? errors : null,
+          status:       isError ? 'error' : 'done',
+          errors:       errors.length ? errors : null,
         },
       });
+
+      if (detection.fileType === 'Balance Statement' && !isError) {
+        balanceBatchId = batch.id;
+      }
 
       results.push({
         fileName:       file.name,
@@ -101,21 +112,21 @@ export async function POST(req: NextRequest) {
         matchedColumns: detection.matchedColumns,
         missingColumns: detection.missingColumns,
         rowCount,
-        status: detection.confidence === 'none' ? 'error' : 'done',
+        status:         isError ? 'error' : 'done',
         errors,
       });
     }
 
-    if (balanceRows.length > 0) {
+    // ── Save snapshot only when balance sheet parsed successfully ──────────────
+    if (balanceRows.length > 0 && balanceBatchId) {
       try {
         const kpis      = calculateMfLoanKPIs(balanceRows, txnRows, snapshotDate);
         const branchAUM = calculateMfBranchBreakdown(balanceRows);
-        const batchId   = `mf-supra-${snapshotDate.getTime()}`;
 
         await prisma.mfLoanSnapshot.upsert({
-          where:  { uploadBatchId: batchId },
+          where:  { uploadBatchId: balanceBatchId },
           create: {
-            uploadBatchId:      batchId,
+            uploadBatchId:      balanceBatchId,
             company:            'supra',
             snapshotDate,
             totalAUM:           kpis.totalAUM,
@@ -134,16 +145,24 @@ export async function POST(req: NextRequest) {
             branchAUM,
           },
           update: {
-            ftdCollection:      kpis.ftdCollection,
-            mtdCollection:      kpis.mtdCollection,
-            ftdDisburseFromTxn: kpis.ftdDisburseFromTxn,
+            snapshotDate,
+            totalAUM:           kpis.totalAUM,
+            totalCustomers:     kpis.totalCustomers,
+            avgYield:           kpis.avgYield,
+            mtdDisbursement:    kpis.mtdDisbursement,
+            ftdDisbursement:    kpis.ftdDisbursement,
             overdueAccounts:    kpis.overdueAccounts,
             overdueAmount:      kpis.overdueAmount,
             gnpaAmount:         kpis.gnpaAmount,
             gnpaPct:            kpis.gnpaPct,
             loanClosureAmount:  kpis.loanClosureAmount,
+            ftdCollection:      kpis.ftdCollection,
+            mtdCollection:      kpis.mtdCollection,
+            ftdDisburseFromTxn: kpis.ftdDisburseFromTxn,
+            branchAUM,
           },
         });
+        console.log('[mf-loan] Snapshot saved for batchId:', balanceBatchId);
       } catch (snapErr) {
         console.error('[mf-loan] Snapshot save error:', snapErr);
       }
