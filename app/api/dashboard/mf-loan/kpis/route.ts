@@ -1,5 +1,5 @@
 /**
- * GET /api/dashboard/mf-loan/kpis?period=FTD|MTD|YTD[&date=YYYY-MM-DD][&month=YYYY-MM][&year=YYYY]
+ * GET /api/dashboard/mf-loan/kpis?period=FTD|MTD|YTD[&date=YYYY-MM-DD][&month=YYYY-MM][&year=FY2026|2026]
  *
  * Returns the latest MfLoanSnapshot KPIs for the requested period.
  * Falls back to the most recent snapshot ever if no snapshot exists in the
@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions }      from '@/lib/auth';
 import { prisma }           from '@/lib/prisma';
+import { indianFyStartEnd, parseIndianFyEndYearFromParam } from '@/lib/indian-fy';
 
 async function resolveMfSnapshot(
   company: string,
@@ -48,11 +49,10 @@ async function resolveMfSnapshot(
     return snap ?? await latestEver();
   }
 
-  // YTD
-  const yearStr = searchParams.get('year');
-  const year    = yearStr ? parseInt(yearStr, 10) : now.getFullYear();
-  const start   = new Date(year, 0, 1, 0, 0, 0, 0);
-  const end     = new Date(year, 11, 31, 23, 59, 59, 999);
+  // YTD — Indian financial year (Apr–Mar), same as gold-loan resolveSnapshot
+  const yearParam = searchParams.get('year');
+  const fyEndYear = parseIndianFyEndYearFromParam(yearParam, now);
+  const { start, end } = indianFyStartEnd(fyEndYear);
   const snap = await prisma.mfLoanSnapshot.findFirst({
     where:   { company, snapshotDate: { gte: start, lte: end } },
     orderBy: { snapshotDate: 'desc' },

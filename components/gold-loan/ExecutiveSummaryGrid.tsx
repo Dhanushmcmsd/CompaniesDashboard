@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { usePeriod } from '@/context/PeriodContext';
+import { useGoldLoanData } from '@/context/GoldLoanDataContext';
 import KPICard from './KPICard';
 
 interface KPIData {
@@ -39,16 +39,8 @@ function fmtFull(n: unknown, decimals = 6): string {
 
 export default function ExecutiveSummaryGrid() {
   const { period } = usePeriod();
-  const [data, setData]     = useState<KPIData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/dashboard/gold-loan/kpis?period=${period}`)
-      .then((r) => r.json())
-      .then((d) => { setData(d?.kpis ?? null); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const data = snapshot?.kpis ?? null;
 
   const gnpaColor: 'blue' | 'green' | 'red' = !data ? 'blue' : (data.gnpaPct ?? 0) > 2 ? 'red' : 'green';
   const collColor: 'blue' | 'green' | 'yellow' | 'red' = !data ? 'blue'

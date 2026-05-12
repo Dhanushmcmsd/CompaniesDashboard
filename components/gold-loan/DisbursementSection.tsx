@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { usePeriod } from "@/context/PeriodContext";
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line, Legend,
@@ -36,31 +36,12 @@ function Skeleton() {
 
 export default function DisbursementSection() {
   const { period } = usePeriod();
-  const [trend,   setTrend]   = useState<TrendPoint[]>([]);
-  const [branches,setBranches]= useState<BranchDisb[]>([]);
-  const [disbVsColl, setDisbVsColl] = useState<DisbVsColl | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    Promise.all([
-      fetch(`/api/dashboard/gold-loan/disbursement-trend?period=${period}`).then((r) => r.json()),
-      fetch(`/api/dashboard/gold-loan/branch-disbursement?period=${period}`).then((r) => r.json()),
-      fetch(`/api/dashboard/gold-loan/disb-vs-collection?period=${period}`).then((r) => r.json()),
-    ])
-      .then(([t, b, d]) => {
-        // each API wraps in a key
-        setTrend(Array.isArray(t?.trend)    ? t.trend    : []);
-        setBranches(Array.isArray(b?.branches) ? b.branches : []);
-        setDisbVsColl(d?.data ?? null);
-        setLoading(false);
-      })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const trend: TrendPoint[] = snapshot?.disbursementTrend ?? [];
+  const branches: BranchDisb[] = snapshot?.branchDisbursement ?? [];
+  const disbVsColl: DisbVsColl | null = snapshot?.disbVsCollection ?? null;
 
   if (loading) return <Skeleton />;
-  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load disbursement data: {error}</div>;
 
   const disbKey: keyof BranchDisb = period === "YTD" ? "ytd" : "mtd";
   const emptyMsg = <p className="text-sm text-gray-400 text-center py-10">Upload a Balance Statement to see data.</p>;

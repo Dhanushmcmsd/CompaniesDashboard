@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import { usePeriod }          from '@/context/PeriodContext';
+import { fetcher } from '@/lib/swr-fetcher';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface MfKPIs {
@@ -106,7 +107,7 @@ function PeriodBar() {
             period === t ? 'bg-white text-[#1a2340] shadow' : 'text-white hover:bg-white/20'
           }`}
         >
-          {t}
+          {t === 'YTD' ? 'YTD (FY)' : t}
         </button>
       ))}
     </div>
@@ -116,16 +117,12 @@ function PeriodBar() {
 // ── Main dashboard ────────────────────────────────────────────────────────────
 export default function MfLoanDashboard() {
   const { period, periodParams } = usePeriod();
-  const [kpis, setKpis]         = useState<MfKPIs | null>(null);
-  const [loading, setLoading]   = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/dashboard/mf-loan/kpis?${periodParams}`)
-      .then((r) => r.json())
-      .then((d) => { setKpis(d?.kpis ?? null); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [periodParams]);
+  const { data, isLoading: loading } = useSWR<{ kpis?: MfKPIs | null }>(
+    `/api/dashboard/mf-loan/kpis?${periodParams}`,
+    fetcher,
+    { refreshInterval: 30_000, revalidateOnFocus: true }
+  );
+  const kpis = data?.kpis ?? null;
 
   const dateLabel = kpis?.snapshotDate
     ? new Date(kpis.snapshotDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })

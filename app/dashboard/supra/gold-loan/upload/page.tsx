@@ -2,11 +2,19 @@
 
 import { useState, useRef } from 'react';
 
+type UploadResult = {
+  fileName: string;
+  fileType: string;
+  rowCount: number;
+  status: string;
+  errors: string[];
+};
+
 export default function GoldLoanUploadPage() {
   const [loanFile, setLoanFile] = useState<File | null>(null);
   const [txnFile, setTxnFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ inserted: number; updated: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{ results: UploadResult[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
@@ -26,8 +34,8 @@ export default function GoldLoanUploadPage() {
     setProgress(20);
 
     const formData = new FormData();
-    formData.append('loanBalance', loanFile);
-    formData.append('transactionStatement', txnFile);
+    formData.append('files', loanFile);
+    formData.append('files', txnFile);
 
     try {
       setProgress(50);
@@ -38,7 +46,8 @@ export default function GoldLoanUploadPage() {
       setProgress(80);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
-      setResult(data);
+      if (!Array.isArray(data.results)) throw new Error('Invalid response from server');
+      setResult({ results: data.results as UploadResult[] });
       setProgress(100);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
@@ -160,26 +169,48 @@ export default function GoldLoanUploadPage() {
             {result && (
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <p className="text-sm font-semibold text-green-700 mb-2">✓ Upload Successful</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-green-600">{result.inserted}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Records Inserted</p>
-                  </div>
-                  <div className="bg-white rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-blue-600">{result.updated}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Records Updated</p>
-                  </div>
-                </div>
-                {result.errors.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs font-medium text-red-600 mb-1">Errors ({result.errors.length}):</p>
-                    <ul className="text-xs text-red-500 space-y-0.5 max-h-24 overflow-y-auto">
-                      {result.errors.map((err, i) => (
-                        <li key={i}>• {err}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                <ul className="space-y-3">
+                  {result.results.map((r, idx) => (
+                    <li
+                      key={`${r.fileName}-${idx}`}
+                      className="bg-white rounded-lg border border-green-100 p-3 text-sm"
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="font-medium text-gray-800 truncate" title={r.fileName}>
+                          {r.fileName}
+                        </p>
+                        <span
+                          className={`text-xs font-semibold uppercase shrink-0 ${
+                            r.status === 'done'
+                              ? 'text-green-600'
+                              : r.status === 'error'
+                                ? 'text-red-600'
+                                : 'text-amber-600'
+                          }`}
+                        >
+                          {r.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Type: <span className="text-gray-700">{r.fileType}</span>
+                        {' · '}
+                        Rows: <span className="text-gray-700">{r.rowCount}</span>
+                      </p>
+                      {r.errors.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-100">
+                          <p className="text-xs font-medium text-red-600 mb-1">
+                            Warnings / errors ({r.errors.length})
+                          </p>
+                          <ul className="text-xs text-red-500 space-y-0.5 max-h-24 overflow-y-auto">
+                            {r.errors.map((err, i) => (
+                              <li key={i}>• {err}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
                 <button
                   type="button"
                   onClick={reset}

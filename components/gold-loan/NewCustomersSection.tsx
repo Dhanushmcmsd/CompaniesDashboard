@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePeriod } from "@/context/PeriodContext";
-
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 interface NewCustomerData {
   totalCustomers: number;
   totalAccounts: number;
@@ -34,22 +32,10 @@ function Pill({ label, value, unit }: { label: string; value: string; unit?: str
 }
 
 export default function NewCustomersSection() {
-  const { period } = usePeriod();
-  const [data, setData]       = useState<NewCustomerData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/new-customers?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => { setData(d); setLoading(false); })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const data = snapshot?.newCustomers;
 
   if (loading) return <div className="h-32 bg-gray-100 rounded-xl animate-pulse" />;
-  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load new customer data: {error}</div>;
-
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <Pill label="Total Customers"   value={fmt0(data?.totalCustomers)} />

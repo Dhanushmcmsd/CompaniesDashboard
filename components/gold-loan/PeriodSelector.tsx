@@ -1,5 +1,6 @@
 'use client';
 
+import { formatIndianFyLabel, indianFyEndYearForDate } from '@/lib/indian-fy';
 import { usePeriod, Period } from '@/context/PeriodContext';
 
 const PERIODS: Period[] = ['FTD', 'MTD', 'YTD'];
@@ -7,7 +8,7 @@ const PERIODS: Period[] = ['FTD', 'MTD', 'YTD'];
 const PERIOD_LABELS: Record<Period, string> = {
   FTD: 'FTD — For the Day',
   MTD: 'MTD — Month to Date',
-  YTD: 'YTD — Year to Date',
+  YTD: 'YTD (FY) — Financial Year to Date',
 };
 
 export default function PeriodSelector() {
@@ -34,7 +35,7 @@ export default function PeriodSelector() {
               }
             `}
           >
-            {p}
+            {p === 'YTD' ? 'YTD (FY)' : p}
           </button>
         ))}
       </div>
@@ -96,7 +97,7 @@ export default function PeriodSelector() {
       {/* YTD: year picker */}
       {period === 'YTD' && (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">Year</span>
+          <span className="text-xs text-gray-400">FY</span>
           {availableYears.length > 0 ? (
             <select
               value={year}
@@ -113,9 +114,12 @@ export default function PeriodSelector() {
               onChange={(e) => setYear(e.target.value)}
               className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white shadow-sm focus:outline-none"
             >
-              {[2024, 2025, 2026].map((y) => (
-                <option key={y} value={String(y)}>{y}</option>
-              ))}
+              {(() => {
+                const end = indianFyEndYearForDate(new Date());
+                return [end - 2, end - 1, end].map((y) => (
+                  <option key={y} value={formatIndianFyLabel(y)}>{formatIndianFyLabel(y)}</option>
+                ));
+              })()}
             </select>
           )}
         </div>

@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePeriod } from "@/context/PeriodContext";
-
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 interface NPAData {
   gnpaAmount: number;
   gnpaPct: number;
@@ -38,27 +36,11 @@ function Pill({ label, value, unit, red }: { label: string; value: string; unit?
 }
 
 export default function NPARiskSection() {
-  const { period } = usePeriod();
-  const [data, setData]       = useState<NPAData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/npa-risk?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => {
-        // API returns { npa: { ... } }
-        setData(d?.npa ?? null);
-        setLoading(false);
-      })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const data = snapshot?.npaRisk ?? null;
 
   if (loading) return <div className="h-48 bg-gray-100 rounded-xl animate-pulse" />;
-  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load NPA data: {error}</div>;
   if (!data)   return <div className="text-gray-400 text-sm text-center py-8">No NPA data — upload a Balance Statement.</div>;
-
   const branchNPA = Array.isArray(data.branchNPA) ? data.branchNPA : [];
 
   return (

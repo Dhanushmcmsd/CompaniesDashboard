@@ -4,6 +4,7 @@
  * Returns detailed parse results including matched/missing columns per file.
  * Fixed: uses real uploadBatch.id as uploadBatchId for snapshot.
  */
+import { Prisma } from '@prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession }          from 'next-auth';
 import { authOptions }               from '@/lib/auth';
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
           uploadedBy:   session.user.email ?? 'unknown',
           rowCount,
           status:       isError ? 'error' : 'done',
-          errors:       errors.length ? errors : null,
+          errors:       errors.length ? errors : [],
         },
       });
 
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
             ftdCollection:      kpis.ftdCollection,
             mtdCollection:      kpis.mtdCollection,
             ftdDisburseFromTxn: kpis.ftdDisburseFromTxn,
-            branchAUM,
+            branchAUM:          branchAUM as unknown as Prisma.InputJsonValue,
           },
           update: {
             snapshotDate,
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
             ftdCollection:      kpis.ftdCollection,
             mtdCollection:      kpis.mtdCollection,
             ftdDisburseFromTxn: kpis.ftdDisburseFromTxn,
-            branchAUM,
+            branchAUM:          branchAUM as unknown as Prisma.InputJsonValue,
           },
         });
         console.log('[mf-loan] Snapshot saved for batchId:', balanceBatchId);

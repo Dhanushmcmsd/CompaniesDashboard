@@ -1,24 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePeriod } from "@/context/PeriodContext";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line,
-  PieChart, Pie, Cell, Legend,
-  LabelList,
-} from "recharts";
-
-interface ClosureData {
-  totalGoldWeight: number;
-  avgGoldWeightPerLoan: number;
-  closedGrams: null;
-  note: string;
-}
-
-const REASON_COLORS = [
-  "#3b82f6", "#22c55e", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4",
-];
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 
 function fmt2(n: unknown) {
   const num = Number(n);
@@ -55,26 +37,10 @@ function Skeleton() {
 }
 
 export default function ClosureSection() {
-  const { period } = usePeriod();
-  const [data, setData]       = useState<ClosureData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/closures?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => { setData(d); setLoading(false); })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const data = snapshot?.closures ?? undefined;
 
   if (loading) return <Skeleton />;
-  if (error) return (
-    <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
-      Failed to load closure data: {error}
-    </div>
-  );
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePeriod } from "@/context/PeriodContext";
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 
-// Shape returned by /api/dashboard/gold-loan/alerts
 interface AlertItem {
   type: string;
   severity: "high" | "medium" | "low";
@@ -29,32 +27,12 @@ function severityIcon(s: AlertItem["severity"]) {
 }
 
 export default function AlertsPanel() {
-  const { period } = usePeriod();
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/alerts?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => {
-        // API returns { alerts: [...], avgPresentRate: number }
-        setAlerts(Array.isArray(d?.alerts) ? d.alerts : []);
-        setLoading(false);
-      })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const alerts = (snapshot?.alerts ?? []) as AlertItem[];
 
   if (loading) return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
       {[0,1,2,3].map((i) => <div key={i} className="h-28 bg-gray-100 rounded-xl animate-pulse" />)}
-    </div>
-  );
-
-  if (error) return (
-    <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">
-      Failed to load alerts: {error}
     </div>
   );
 

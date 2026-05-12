@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePeriod } from "@/context/PeriodContext";
-import {
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
 
@@ -41,23 +39,11 @@ function KPIPill({ label, value, unit, color = "" }: { label: string; value: str
 }
 
 export default function OverdueSection() {
-  const { period } = usePeriod();
-  const [data, setData]       = useState<OverdueData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/overdue-buckets?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => { setData(d); setLoading(false); })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const data = snapshot?.overdue;
 
   if (loading) return <div className="h-64 bg-gray-100 rounded-xl animate-pulse" />;
-  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load overdue data: {error}</div>;
   if (!data)   return null;
-
   const buckets = Array.isArray(data.buckets) ? data.buckets : [];
 
   return (

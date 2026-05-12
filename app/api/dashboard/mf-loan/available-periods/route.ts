@@ -6,6 +6,7 @@ import { NextResponse }    from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions }     from '@/lib/auth';
 import { prisma }          from '@/lib/prisma';
+import { uniqueSortedIndianFyLabelsFromDates } from '@/lib/indian-fy';
 
 async function mfAvailableDays(company: string): Promise<string[]> {
   const rows = await prisma.mfLoanSnapshot.findMany({
@@ -34,7 +35,7 @@ async function mfAvailableYears(company: string): Promise<string[]> {
     orderBy: { snapshotDate: 'desc' },
     take:    365,
   });
-  return Array.from(new Set(rows.map((r: { snapshotDate: Date }) => String(r.snapshotDate.getFullYear()))));
+  return uniqueSortedIndianFyLabelsFromDates(rows.map((r) => r.snapshotDate));
 }
 
 export async function GET() {

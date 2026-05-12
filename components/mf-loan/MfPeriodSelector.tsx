@@ -18,7 +18,7 @@ export default function MfPeriodSelector() {
               : 'text-gray-300 hover:text-white'
           }`}
         >
-          {p}
+          {p === 'YTD' ? 'YTD (FY)' : p}
         </button>
       ))}
     </div>

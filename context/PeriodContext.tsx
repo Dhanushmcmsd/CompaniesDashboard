@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { formatIndianFyLabel, indianFyEndYearForDate } from '@/lib/indian-fy';
 
 export type Period = 'FTD' | 'MTD' | 'YTD';
 export type Portfolio = 'gold-loan' | 'mf-loan';
@@ -9,7 +10,7 @@ interface PeriodState {
   period:   Period;
   date:     string;   // YYYY-MM-DD  (FTD)
   month:    string;   // YYYY-MM     (MTD)
-  year:     string;   // YYYY        (YTD)
+  year:     string;   // FY20xx      (YTD, Indian FY)
   availableDays:   string[];
   availableMonths: string[];
   availableYears:  string[];
@@ -31,7 +32,7 @@ export function PeriodProvider({ children, portfolio = 'gold-loan' }: PeriodProv
   const now      = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = now.toISOString().slice(0, 7);
-  const yearStr  = String(now.getFullYear());
+  const yearStr  = formatIndianFyLabel(indianFyEndYearForDate(now));
 
   const [period,   setPeriod]   = useState<Period>('FTD');
   const [date,     setDate]     = useState(todayStr);

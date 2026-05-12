@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { usePeriod } from "@/context/PeriodContext";
-
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 interface BranchRow {
   branch: string;
   aum: number;
@@ -39,24 +39,10 @@ function npaBadge(v: number) {
 
 export default function BranchPerformanceTable() {
   const { period } = usePeriod();
-  const [rows, setRows]         = useState<BranchRow[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const rows: BranchRow[] = snapshot?.branchPerformance ?? [];
   const [sortKey, setSortKey]   = useState<SortKey>("aum");
   const [sortDir, setSortDir]   = useState<"asc" | "desc">("desc");
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/branch-performance?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => {
-        // API returns { branches: [...] } — unwrap
-        setRows(Array.isArray(d?.branches) ? d.branches : []);
-        setLoading(false);
-      })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
-
   const sortedRows = useMemo(() => {
     return [...rows].sort((a, b) => {
       const av = a[sortKey];
@@ -76,9 +62,7 @@ export default function BranchPerformanceTable() {
   const th = "px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide whitespace-nowrap cursor-pointer select-none";
 
   if (loading) return <div className="h-64 bg-gray-100 rounded-xl animate-pulse" />;
-  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load branch performance: {error}</div>;
   if (!rows.length) return <div className="bg-gray-50 text-gray-400 text-sm rounded-xl px-4 py-6 text-center">No branch data yet — upload a Balance Statement to populate.</div>;
-
   const disbLabel = period === "YTD" ? "YTD Disb (\u20b9 Cr)" : "MTD Disb (\u20b9 Cr)";
   const disbField: SortKey = period === "YTD" ? "ytdDisb" : "mtdDisb";
 

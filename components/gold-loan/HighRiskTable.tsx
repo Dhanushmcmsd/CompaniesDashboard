@@ -1,14 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePeriod } from "@/context/PeriodContext";
-
-interface HighRiskData {
-  goldRate: number;
-  highRiskCount: number;
-  highLTVCount: number;
-  accounts: unknown[];
-}
+import { useGoldLoanData } from "@/context/GoldLoanDataContext";
 
 function fmt0(n: unknown) {
   const num = Number(n);
@@ -17,25 +9,14 @@ function fmt0(n: unknown) {
 }
 
 export default function HighRiskTable() {
-  const { period } = usePeriod();
-  const [data, setData]       = useState<HighRiskData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-
-  useEffect(() => {
-    setLoading(true); setError(null);
-    fetch(`/api/dashboard/gold-loan/high-risk?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d) => { setData(d); setLoading(false); })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
-  }, [period]);
+  const { snapshot, isLoading: loading } = useGoldLoanData();
+  const data = snapshot?.highRisk;
 
   if (loading) return <div className="h-32 bg-gray-100 rounded-xl animate-pulse" />;
-  if (error)   return <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3">Failed to load high-risk data: {error}</div>;
 
-  const goldRate     = data?.goldRate     ?? 0;
+  const goldRate      = data?.goldRate ?? 0;
   const highRiskCount = data?.highRiskCount ?? 0;
-  const highLTVCount  = data?.highLTVCount  ?? 0;
+  const highLTVCount  = data?.highLTVCount ?? 0;
 
   return (
     <div className="space-y-4">
