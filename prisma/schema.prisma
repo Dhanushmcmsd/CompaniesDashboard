@@ -75,6 +75,66 @@ model GoldLoanSnapshot {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MF (Micro Finance) Loan — KPI Snapshot
+// Source A: Loan Balance Statement  |  Source B: Transaction Statement
+//
+// Calculations per workflow spec:
+//   totalAUM          = SUM(Principal Closing Balance)
+//   totalCustomers    = COUNT DISTINCT(Customer Number)
+//   avgYield          = AVG(Rate of Interest)
+//   mtdDisbursement   = SUM(Disbursed Amount) WHERE Issue Date >= Apr 1 AND <= snapshotDate
+//   ftdDisbursement   = SUM(Disbursed Amount) WHERE Issue Date = snapshotDate
+//   overdueAccounts   = COUNT WHERE DPD > 0
+//   overdueAmount     = SUM(Principal Closing Balance) WHERE DPD > 0
+//   gnpaAmount        = SUM(Principal Closing Balance) WHERE DPD > 90
+//   gnpaPct           = gnpaAmount / totalAUM * 100
+//   loanClosureAmount = SUM(Closing Principal Received) WHERE Closed On = snapshotDate
+//   ftdCollection     = SUM(Total Received) WHERE Transaction Date = snapshotDate [Txn Statement]
+//   mtdCollection     = SUM(Total Received) WHERE Transaction Date in current month [Txn Statement]
+//   ftdDisburseFromTxn= SUM(Principal Dr) WHERE Transaction Date = snapshotDate [Txn Statement]
+// ─────────────────────────────────────────────────────────────────────────────
+model MfLoanSnapshot {
+  id            String    @id @default(cuid())
+  uploadBatchId String    @unique
+  company       String
+  reportDate    DateTime?
+  snapshotDate  DateTime  @default(now())
+
+  // ── Total AUM (from Balance Statement) ──────────────────────────────────────
+  totalAUM          Float
+  totalCustomers    Int
+  avgYield          Float   // AVG(Rate of Interest)
+
+  // ── Disbursement (Balance Statement — Issue Date filter) ─────────────────────
+  mtdDisbursement   Float   // Apr 1 to snapshotDate
+  ftdDisbursement   Float   // Issue Date = snapshotDate
+
+  // ── Overdue (DPD > 0) ────────────────────────────────────────────────────────
+  overdueAccounts   Int
+  overdueAmount     Float
+
+  // ── GNPA (DPD > 90) ──────────────────────────────────────────────────────────
+  gnpaAmount        Float
+  gnpaPct           Float
+
+  // ── Loan Closures ────────────────────────────────────────────────────────────
+  loanClosureAmount Float   // SUM(Closing Principal Received) WHERE Closed On = snapshotDate
+
+  // ── Collections (Transaction Statement) ──────────────────────────────────────
+  ftdCollection      Float  // SUM(Total Received) WHERE Txn Date = snapshotDate
+  mtdCollection      Float  // SUM(Total Received) WHERE Txn Date in current month
+  ftdDisburseFromTxn Float  // SUM(Principal Dr) WHERE Txn Date = snapshotDate
+
+  // ── Branch breakdown (JSON) ──────────────────────────────────────────────────
+  branchAUM         Json    // [{branch, aum, customers, overdueAmount, gnpaAmount}]
+
+  createdAt DateTime @default(now())
+
+  @@index([company, snapshotDate])
+  @@map("mf_loan_snapshots")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Upload Batch
 // ─────────────────────────────────────────────────────────────────────────────
 model UploadBatch {

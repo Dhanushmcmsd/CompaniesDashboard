@@ -18,9 +18,10 @@ export default function CompanyPage({ params }: { params: { company: string } })
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {isSupra ? (
           company.portfolios.map((p) => (
-            p.slug === "gold-loan" && p.active && "dashboardPath" in p ? (
-              <Link key={p.slug} href={p.dashboardPath} className="bg-[#0f172a] text-white rounded-2xl shadow p-5">
-                {p.name}
+            p.active && "dashboardPath" in p ? (
+              <Link key={p.slug} href={p.dashboardPath} className="bg-[#0f172a] text-white rounded-2xl shadow p-5 hover:bg-slate-700 transition-colors">
+                <p className="font-semibold text-lg">{p.name}</p>
+                <p className="text-xs text-slate-300 mt-1">View Dashboard →</p>
               </Link>
             ) : (
               <div key={p.slug} className="bg-white rounded-2xl shadow p-5 opacity-50 grayscale cursor-not-allowed">
