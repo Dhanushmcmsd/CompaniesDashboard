@@ -3,29 +3,32 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 export type Period = 'FTD' | 'MTD' | 'YTD';
+export type Portfolio = 'gold-loan' | 'mf-loan';
 
 interface PeriodState {
   period:   Period;
   date:     string;   // YYYY-MM-DD  (FTD)
   month:    string;   // YYYY-MM     (MTD)
   year:     string;   // YYYY        (YTD)
-  // Available options from DB
   availableDays:   string[];
   availableMonths: string[];
   availableYears:  string[];
-  // Setters
   setPeriod: (p: Period) => void;
   setDate:   (d: string) => void;
   setMonth:  (m: string) => void;
   setYear:   (y: string) => void;
-  // Build query string for API calls
   periodParams: string;
 }
 
 const PeriodContext = createContext<PeriodState | null>(null);
 
-export function PeriodProvider({ children }: { children: ReactNode }) {
-  const now = new Date();
+interface PeriodProviderProps {
+  children:  ReactNode;
+  portfolio?: Portfolio; // defaults to 'gold-loan' for backward-compat
+}
+
+export function PeriodProvider({ children, portfolio = 'gold-loan' }: PeriodProviderProps) {
+  const now      = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = now.toISOString().slice(0, 7);
   const yearStr  = String(now.getFullYear());
@@ -38,9 +41,9 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [availableYears,  setAvailableYears]  = useState<string[]>([]);
 
-  // Fetch available periods once on mount
   useEffect(() => {
-    fetch('/api/dashboard/gold-loan/available-periods')
+    // Each portfolio fetches from its own available-periods endpoint
+    fetch(`/api/dashboard/${portfolio}/available-periods`)
       .then((r) => r.json())
       .then((d) => {
         if (d.days?.length)   { setAvailableDays(d.days);     setDate(d.days[0]); }
@@ -48,9 +51,9 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
         if (d.years?.length)  { setAvailableYears(d.years);  setYear(d.years[0]); }
       })
       .catch(() => {});
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portfolio]);
 
-  // Build the query string that all API calls append
   const periodParams =
     period === 'FTD' ? `period=FTD&date=${date}` :
     period === 'MTD' ? `period=MTD&month=${month}` :
