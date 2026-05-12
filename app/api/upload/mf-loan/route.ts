@@ -1,6 +1,7 @@
 /**
  * POST /api/upload/mf-loan
  * Accepts one or more .xlsx files (Balance Statement + Transaction Statement).
+ * Detects file type by filename AND header sniffing.
  * Parses, calculates KPIs, and upserts a MfLoanSnapshot in the DB.
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,7 +19,7 @@ import {
 } from '@/lib/mf-loan/calculator';
 import type { MfLoanBalanceRow, MfLoanTransactionRow } from '@/lib/mf-loan/types';
 
-export const runtime    = 'nodejs';
+export const runtime     = 'nodejs';
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
@@ -34,29 +35,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
 
-    const results = [];
+    const results: { fileName: string; fileType: string; rowCount: number; status: string; errors: string[] }[] = [];
     let balanceRows: MfLoanBalanceRow[]     = [];
     let txnRows:     MfLoanTransactionRow[] = [];
     const snapshotDate = new Date();
 
     for (const file of files) {
-      const fileType = detectMfFileType(file.name);
       const buffer   = Buffer.from(await file.arrayBuffer());
+      // Pass buffer so detectMfFileType can sniff headers if filename is generic
+      const fileType = detectMfFileType(file.name, buffer);
       const errors: string[] = [];
       let rowCount = 0;
 
       try {
         if (fileType === 'Balance Statement') {
-          const rows = parseMfLoanBalanceStatement(buffer);
+          const rows  = parseMfLoanBalanceStatement(buffer);
           balanceRows = rows;
           rowCount    = rows.length;
         } else if (fileType === 'Transaction Statement') {
           const rows = parseMfLoanTransactionStatement(buffer);
-          txnRows  = rows;
-          rowCount = rows.length;
+          txnRows    = rows;
+          rowCount   = rows.length;
         } else {
           errors.push(
-            `Unknown file type — file name must include "balance" or "transaction".`,
+            `Could not detect file type for "${file.name}". ` +
+            `Rename file to include "balance" or "transaction", or ensure correct column headers.`,
           );
         }
       } catch (parseErr: unknown) {
@@ -65,7 +68,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Record the upload in UploadBatch
       await prisma.uploadBatch.create({
         data: {
           company:      'supra',
@@ -79,16 +81,10 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      results.push({
-        fileName: file.name,
-        fileType,
-        rowCount,
-        status: errors.length ? 'error' : 'done',
-        errors,
-      });
+      results.push({ fileName: file.name, fileType, rowCount, status: errors.length ? 'error' : 'done', errors });
     }
 
-    // Save snapshot only when at least a Balance Statement was parsed
+    // Save snapshot whenever at least a Balance Statement was parsed
     if (balanceRows.length > 0) {
       try {
         const kpis      = calculateMfLoanKPIs(balanceRows, txnRows, snapshotDate);
@@ -96,36 +92,39 @@ export async function POST(req: NextRequest) {
         const batchId   = `mf-supra-${snapshotDate.getTime()}`;
 
         await prisma.mfLoanSnapshot.upsert({
-          where: { uploadBatchId: batchId },
+          where:  { uploadBatchId: batchId },
           create: {
-            uploadBatchId:     batchId,
-            company:           'supra',
+            uploadBatchId:      batchId,
+            company:            'supra',
             snapshotDate,
-            totalAUM:          kpis.totalAUM,
-            totalCustomers:    kpis.totalCustomers,
-            avgYield:          kpis.avgYield,
-            mtdDisbursement:   kpis.mtdDisbursement,
-            ftdDisbursement:   kpis.ftdDisbursement,
-            overdueAccounts:   kpis.overdueAccounts,
-            overdueAmount:     kpis.overdueAmount,
-            gnpaAmount:        kpis.gnpaAmount,
-            gnpaPct:           kpis.gnpaPct,
-            loanClosureAmount: kpis.loanClosureAmount,
+            totalAUM:           kpis.totalAUM,
+            totalCustomers:     kpis.totalCustomers,
+            avgYield:           kpis.avgYield,
+            mtdDisbursement:    kpis.mtdDisbursement,
+            ftdDisbursement:    kpis.ftdDisbursement,
+            overdueAccounts:    kpis.overdueAccounts,
+            overdueAmount:      kpis.overdueAmount,
+            gnpaAmount:         kpis.gnpaAmount,
+            gnpaPct:            kpis.gnpaPct,
+            loanClosureAmount:  kpis.loanClosureAmount,
             ftdCollection:      kpis.ftdCollection,
             mtdCollection:      kpis.mtdCollection,
             ftdDisburseFromTxn: kpis.ftdDisburseFromTxn,
             branchAUM,
           },
           update: {
-            // If both files uploaded in separate sessions, patch txn-side fields
             ftdCollection:      kpis.ftdCollection,
             mtdCollection:      kpis.mtdCollection,
             ftdDisburseFromTxn: kpis.ftdDisburseFromTxn,
+            overdueAccounts:    kpis.overdueAccounts,
+            overdueAmount:      kpis.overdueAmount,
+            gnpaAmount:         kpis.gnpaAmount,
+            gnpaPct:            kpis.gnpaPct,
+            loanClosureAmount:  kpis.loanClosureAmount,
           },
         });
       } catch (snapErr) {
         console.error('[mf-loan] Snapshot save error:', snapErr);
-        // Non-fatal — upload result still returned to employee
       }
     }
 
