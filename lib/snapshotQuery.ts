@@ -62,7 +62,7 @@ export async function availableDays(company: string) {
     orderBy: { snapshotDate: 'desc' },
     take: 90,
   });
-  const days = [...new Set(rows.map((r) => r.snapshotDate.toISOString().slice(0, 10)))];
+  const days = Array.from(new Set(rows.map((r: { snapshotDate: Date }) => r.snapshotDate.toISOString().slice(0, 10))));
   return days;
 }
 
@@ -74,7 +74,7 @@ export async function availableMonths(company: string) {
     orderBy: { snapshotDate: 'desc' },
     take: 365,
   });
-  const months = [...new Set(rows.map((r) => r.snapshotDate.toISOString().slice(0, 7)))];
+  const months = Array.from(new Set(rows.map((r: { snapshotDate: Date }) => r.snapshotDate.toISOString().slice(0, 7))));
   return months;
 }
 
@@ -86,6 +86,6 @@ export async function availableYears(company: string) {
     orderBy: { snapshotDate: 'desc' },
     take: 365,
   });
-  const years = [...new Set(rows.map((r) => String(r.snapshotDate.getFullYear())))];
+  const years = Array.from(new Set(rows.map((r: { snapshotDate: Date }) => String(r.snapshotDate.getFullYear()))));
   return years;
 }

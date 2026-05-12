@@ -19,7 +19,7 @@ export default function CompanyPage({ params }: { params: { company: string } })
         {isSupra ? (
           company.portfolios.map((p) => (
             p.active && "dashboardPath" in p ? (
-              <Link key={p.slug} href={p.dashboardPath} className="bg-[#0f172a] text-white rounded-2xl shadow p-5 hover:bg-slate-700 transition-colors">
+              <Link key={p.slug} href={p.dashboardPath!} className="bg-[#0f172a] text-white rounded-2xl shadow p-5 hover:bg-slate-700 transition-colors">
                 <p className="font-semibold text-lg">{p.name}</p>
                 <p className="text-xs text-slate-300 mt-1">View Dashboard →</p>
               </Link>

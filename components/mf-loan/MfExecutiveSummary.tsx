@@ -43,7 +43,7 @@ export default function MfExecutiveSummary() {
     : period === 'FTD' ? fmt(data.ftdDisbursement)
     : fmt(data.mtdDisbursement);
 
-  const gnpaColor = !data ? 'blue' : (data.gnpaPct ?? 0) > 3 ? 'red' : 'green';
+  const gnpaColor: 'blue' | 'green' | 'red' = !data ? 'blue' : (data.gnpaPct ?? 0) > 3 ? 'red' : 'green';
 
   const cards = [
     {

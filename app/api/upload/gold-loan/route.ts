@@ -20,13 +20,13 @@ import { calculateKPIs, calculateKPIsFromTransaction } from "@/lib/gold-loan/cal
 
 async function columnExists(): Promise<boolean> {
   try {
-    const rows = await prisma.$queryRawUnsafe<{ column_name: string }[]>(`
+    const rows = (await prisma.$queryRawUnsafe(`
       SELECT column_name
       FROM information_schema.columns
       WHERE table_name = 'gold_loan_snapshots'
         AND column_name = 'overdueAccountNumbers'
       LIMIT 1
-    `);
+    `)) as { column_name: string }[];
     return rows.length > 0;
   } catch {
     return false;

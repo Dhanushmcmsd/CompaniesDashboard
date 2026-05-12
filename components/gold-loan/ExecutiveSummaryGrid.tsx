@@ -50,8 +50,8 @@ export default function ExecutiveSummaryGrid() {
       .catch(() => setLoading(false));
   }, [period]);
 
-  const gnpaColor = !data ? 'blue' : (data.gnpaPct ?? 0) > 2 ? 'red' : 'green';
-  const collColor = !data ? 'blue'
+  const gnpaColor: 'blue' | 'green' | 'red' = !data ? 'blue' : (data.gnpaPct ?? 0) > 2 ? 'red' : 'green';
+  const collColor: 'blue' | 'green' | 'yellow' | 'red' = !data ? 'blue'
     : (data.collectionEfficiency ?? 0) >= 90 ? 'green'
     : (data.collectionEfficiency ?? 0) >= 75 ? 'yellow' : 'red';
 

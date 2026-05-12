@@ -45,8 +45,8 @@ export default function Sidebar() {
                 p.active && "dashboardPath" in p ? (
                   <Link
                     key={p.slug}
-                    href={p.dashboardPath}
-                    className={`block rounded-lg px-3 py-2 text-sm ${pathname.startsWith(p.dashboardPath) ? "bg-white/20" : "hover:bg-white/10 text-gray-200"}`}
+                    href={p.dashboardPath!}
+                    className={`block rounded-lg px-3 py-2 text-sm ${pathname.startsWith(p.dashboardPath!) ? "bg-white/20" : "hover:bg-white/10 text-gray-200"}`}
                   >
                     {p.name}
                   </Link>

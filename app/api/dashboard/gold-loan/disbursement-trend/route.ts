@@ -16,7 +16,7 @@ export async function GET() {
       select:  { reportDate: true, newDisbursements: true, mtdDisbursements: true, createdAt: true },
     });
 
-    const trend = snaps.map((s) => ({
+    const trend = snaps.map((s: typeof snaps[number]) => ({
       date:  (s.reportDate ?? s.createdAt).toISOString().slice(0, 10),
       ftd:   s.newDisbursements,
       mtd:   s.mtdDisbursements,

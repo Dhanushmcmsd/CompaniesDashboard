@@ -14,7 +14,7 @@ async function mfAvailableDays(company: string): Promise<string[]> {
     orderBy: { snapshotDate: 'desc' },
     take:    90,
   });
-  return [...new Set(rows.map((r) => r.snapshotDate.toISOString().slice(0, 10)))];
+  return Array.from(new Set(rows.map((r: { snapshotDate: Date }) => r.snapshotDate.toISOString().slice(0, 10))));
 }
 
 async function mfAvailableMonths(company: string): Promise<string[]> {
@@ -24,7 +24,7 @@ async function mfAvailableMonths(company: string): Promise<string[]> {
     orderBy: { snapshotDate: 'desc' },
     take:    365,
   });
-  return [...new Set(rows.map((r) => r.snapshotDate.toISOString().slice(0, 7)))];
+  return Array.from(new Set(rows.map((r: { snapshotDate: Date }) => r.snapshotDate.toISOString().slice(0, 7))));
 }
 
 async function mfAvailableYears(company: string): Promise<string[]> {
@@ -34,7 +34,7 @@ async function mfAvailableYears(company: string): Promise<string[]> {
     orderBy: { snapshotDate: 'desc' },
     take:    365,
   });
-  return [...new Set(rows.map((r) => String(r.snapshotDate.getFullYear())))];
+  return Array.from(new Set(rows.map((r: { snapshotDate: Date }) => String(r.snapshotDate.getFullYear()))));
 }
 
 export async function GET() {
