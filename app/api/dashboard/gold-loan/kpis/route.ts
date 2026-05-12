@@ -24,15 +24,20 @@ export async function GET(req: Request) {
         gnpaAmount:           snap.gnpaAmount,
         nnpaPct:              snap.nnpaPct,
         collectionEfficiency: snap.collectionEfficiency,
+        // Detailed collection breakdown
+        overdueCollection:    snap.overdueCollection,
+        totalOverdue:         snap.totalOverdue,
+        overduePercent:       snap.overduePercent,
+        // Gold metrics
         avgLTV:               snap.avgLTV,
         totalGoldWeight:      snap.totalGoldWeight,
         avgPresentRate:       snap.avgPresentRate,
         avgGoldValuePerLoan:  snap.avgGoldValuePerLoan,
-        newDisbursements:     snap.newDisbursements,
-        mtdDisbursements:     snap.mtdDisbursements,
-        ytdDisbursements:     snap.ytdDisbursements,
-        totalOverdue:         snap.totalOverdue,
-        overduePercent:       snap.overduePercent,
+        // Disbursements — sourced from Transaction Statement when uploaded,
+        // otherwise from Issue Date in Loan Balance Statement.
+        newDisbursements:     snap.newDisbursements,   // FTD
+        mtdDisbursements:     snap.mtdDisbursements,   // current calendar month
+        ytdDisbursements:     snap.ytdDisbursements,   // current financial year
       },
     });
   } catch (e) {

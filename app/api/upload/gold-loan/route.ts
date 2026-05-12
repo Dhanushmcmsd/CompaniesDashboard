@@ -330,22 +330,44 @@ export async function POST(req: Request) {
             const newEfficiency =
               totalOverdue > 0 ? (newODCollection / totalOverdue) * 100 : 0;
 
+            // Use calculateTransactionKPIs for full disbursement breakdown (FTD/MTD/YTD)
+            // We need to import it to get the period-filtered amounts
+            const { calculateTransactionKPIs: calcTxnKPIs } = await import('@/lib/gold-loan/transaction-calculator');
+            const fullTxnKPIs = calcTxnKPIs(parsed.rows, [], totalOverdue);
+
+            // Build branch disbursement in the format matching BranchDisb type
+            const branchDisbForSnapshot = fullTxnKPIs.branchDisbursements.map((b) => ({
+              branch: b.branch,
+              ftd: b.ftd,
+              mtd: b.mtd,
+              ytd: b.ytd,
+            }));
+
             // Always use raw SQL for this patch so we never touch overdueAccountNumbers
             await prisma.$executeRawUnsafe(
               `UPDATE gold_loan_snapshots
                SET "overdueCollection" = $1,
                    "collectionEfficiency" = $2,
-                   "branchDisbursement" = $3::jsonb
-               WHERE id = $4`,
+                   "branchDisbursement" = $3::jsonb,
+                   "newDisbursements" = $4,
+                   "mtdDisbursements" = $5,
+                   "ytdDisbursements" = $6
+               WHERE id = $7`,
               newODCollection,
               newEfficiency,
-              JSON.stringify(txnKPIs.branchDisbursementFromTxn),
+              JSON.stringify(branchDisbForSnapshot),
+              fullTxnKPIs.ftdDisbursement,
+              fullTxnKPIs.mtdDisbursement,
+              fullTxnKPIs.ytdDisbursement,
               latestSnapshot.id
             );
 
             console.log(
               `[upload] Patched snapshot ${latestSnapshot.id}:`,
-              `collectionEfficiency=${newEfficiency.toFixed(2)}%`
+              `collectionEfficiency=${newEfficiency.toFixed(2)}%`,
+              `ftdDisb=${fullTxnKPIs.ftdDisbursement.toFixed(2)}`,
+              `mtdDisb=${fullTxnKPIs.mtdDisbursement.toFixed(2)}`,
+              `ytdDisb=${fullTxnKPIs.ytdDisbursement.toFixed(2)}`
             );
           } else {
             perFileErrors.push(

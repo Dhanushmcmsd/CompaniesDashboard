@@ -160,8 +160,16 @@ export function calculateTransactionKPIs(
   }
 
   // ── Partition rows ────────────────────────────────────────────────────────
+  // Collection rows: Tran Mode = C (Cash) or B (Bank) — per spec
   const collectionRows   = txnRows.filter((r) => isCollection(r.tranMode as TranMode));
-  const disbursementRows = txnRows.filter((r) => isDisbursement(r.tranMode as TranMode));
+  // Disbursement rows: Tran Mode = A — per spec
+  // Fallback: if tranMode is missing/unknown, treat principalDr > 0 rows as disbursements
+  const disbursementRows = txnRows.filter((r) => {
+    if (isDisbursement(r.tranMode as TranMode)) return true;
+    // Fallback for rows without a valid Tran Mode
+    const mode = String(r.tranMode ?? '').trim().toUpperCase();
+    return !mode && safe(r.principalDr) > 0;
+  });
 
   // ── A. Collection KPIs ───────────────────────────────────────────────────
   let principalCollected = 0;
@@ -243,7 +251,8 @@ export function calculateTransactionKPIs(
 
   for (const r of disbursementRows) {
     const date   = r.transactionDate instanceof Date ? r.transactionDate : null;
-    const amt    = safe(r.disbursedAmount);
+    // disbursedAmount maps to "Issue Amount" column; fall back to principalDr if missing
+    const amt    = safe(r.disbursedAmount) || safe(r.principalDr);
     const branch = String(r.branchName ?? 'Unknown');
 
     if (isToday(date)) ftdDisbursement += amt;

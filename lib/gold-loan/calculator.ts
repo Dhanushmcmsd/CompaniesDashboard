@@ -189,14 +189,23 @@ export function calculateKPIsFromTransaction(
     };
   }
 
-  // Split disbursements vs collections
-  // disbursementRows: any row where principal was debited (outflow)
-  const disbRows = txnRows.filter((r) => safe(r.disbursedAmount) > 0 || safe(r.principalDr) > 0);
+  // Split disbursements vs collections using Tran Mode (per spec):
+  //   Tran Mode A = Disbursement
+  //   Tran Mode C or B = Collection (Cash or Bank)
+  // Fallback: if tranMode is absent, use principal debit/credit signals.
+  const disbRows = txnRows.filter((r) => {
+    const mode = String(r.tranMode ?? '').trim().toUpperCase();
+    if (mode === 'A') return true;
+    if (mode === 'C' || mode === 'B') return false;
+    return safe(r.disbursedAmount) > 0 || safe(r.principalDr) > 0;
+  });
 
-  // collectionRows: any row where principal or interest was received (inflow)
-  const collRows = txnRows.filter(
-    (r) => safe(r.principalCr) > 0 || safe(r.interestRcvd) > 0,
-  );
+  const collRows = txnRows.filter((r) => {
+    const mode = String(r.tranMode ?? '').trim().toUpperCase();
+    if (mode === 'C' || mode === 'B') return true;
+    if (mode === 'A') return false;
+    return safe(r.principalCr) > 0 || safe(r.interestRcvd) > 0;
+  });
 
   // Overdue collection: filter collection rows to DPD>0 accounts only
   const overdueCollRows = collRows.filter((r) =>
@@ -204,7 +213,7 @@ export function calculateKPIsFromTransaction(
   );
 
   return {
-    totalDisbursed:           sum(disbRows,        'disbursedAmount'),
+    totalDisbursed:           disbRows.reduce((s, r) => s + (safe(r.disbursedAmount) || safe(r.principalDr)), 0),
     totalPrincipalCollected:  sum(collRows,        'principalCr'),
     totalInterestCollected:   sum(collRows,        'interestRcvd'),
     totalCollected:           sum(collRows,        'totalAmountReceived'),
@@ -260,6 +269,10 @@ export function calculateKPIs(
   // ── Disbursements (FTD / MTD / YTD) — from balance sheet ─────────────────
   // NOTE: if txnRows are provided, transactionKPIs.ftdDisbursement etc. are
   // more accurate (sourced from TranDate + Tran Mode = 'A').
+  // Balance-sheet fallback: uses Issue Date / Disbursement Date column.
+  // MTD = current calendar month (same month as today).
+  // If the uploaded file has null/missing Issue Dates, these will be zero —
+  // in that case rely on the Transaction Statement upload for accurate numbers.
   let newDisbursements = 0
   let mtdDisbursements = 0
   let ytdDisbursements = 0
