@@ -8,14 +8,7 @@ import MfCollectionSection  from '@/components/mf-loan/MfCollectionSection';
 import MfOverdueSection     from '@/components/mf-loan/MfOverdueSection';
 import MfBranchTable        from '@/components/mf-loan/MfBranchTable';
 import Link                 from 'next/link';
-
-type BranchRow = {
-  branch:        string;
-  aum:           number;
-  customers:     number;
-  overdueAmount: number;
-  gnpaAmount:    number;
-};
+import { PeriodProvider }   from '@/context/PeriodContext';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,8 +29,8 @@ export default async function MfLoanDashboardPage({
 
   const lastUpload = await prisma.uploadBatch.findFirst({
     where:   { company: 'supra', portfolio: 'mf-loan', status: 'done' },
-    orderBy: { createdAt: 'desc' },
-    select:  { createdAt: true, originalName: true, uploadedBy: true },
+    orderBy: { uploadedAt: 'desc' },
+    select:  { uploadedAt: true, originalName: true, uploadedBy: true },
   });
 
   const asOnDate = snapshot?.snapshotDate
@@ -45,10 +38,6 @@ export default async function MfLoanDashboardPage({
         day: '2-digit', month: 'short', year: 'numeric',
       })
     : null;
-
-  const branchRows: BranchRow[] = Array.isArray(snapshot?.branchAUM)
-    ? (snapshot!.branchAUM as unknown as BranchRow[])
-    : [];
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
@@ -79,8 +68,8 @@ export default async function MfLoanDashboardPage({
             <br />
             <span className="font-semibold text-gray-700">{lastUpload.originalName}</span>
             <br />
-            by {lastUpload.uploadedBy} ·{' '}
-            {new Date(lastUpload.createdAt).toLocaleString('en-IN', {
+            by {lastUpload.uploadedBy} &middot;{' '}
+            {new Date(lastUpload.uploadedAt).toLocaleString('en-IN', {
               day: '2-digit', month: 'short', year: 'numeric',
               hour: '2-digit', minute: '2-digit',
             })}
@@ -102,34 +91,34 @@ export default async function MfLoanDashboardPage({
           </p>
         </div>
       ) : (
-        <>
+        <PeriodProvider portfolio="mf-loan">
           {/* ── KPI Summary ── */}
-          <MfExecutiveSummary snapshot={snapshot} />
+          <MfExecutiveSummary />
 
           {/* ── Disbursement ── */}
           <section>
             <h2 className="text-base font-semibold text-[#0f172a] mb-3">Disbursement</h2>
-            <MfDisbursementSection snapshot={snapshot} />
+            <MfDisbursementSection />
           </section>
 
           {/* ── Collection ── */}
           <section>
             <h2 className="text-base font-semibold text-[#0f172a] mb-3">Collection</h2>
-            <MfCollectionSection snapshot={snapshot} />
+            <MfCollectionSection />
           </section>
 
           {/* ── Overdue & NPA ── */}
           <section>
             <h2 className="text-base font-semibold text-[#0f172a] mb-3">Overdue &amp; NPA</h2>
-            <MfOverdueSection snapshot={snapshot} />
+            <MfOverdueSection />
           </section>
 
           {/* ── Branch Breakdown ── */}
           <section>
             <h2 className="text-base font-semibold text-[#0f172a] mb-3">Branch Performance</h2>
-            <MfBranchTable branchAUM={branchRows} />
+            <MfBranchTable />
           </section>
-        </>
+        </PeriodProvider>
       )}
     </div>
   );

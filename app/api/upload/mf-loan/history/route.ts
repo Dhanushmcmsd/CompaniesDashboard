@@ -11,7 +11,7 @@ export async function GET() {
 
   const batches = await prisma.uploadBatch.findMany({
     where:   { portfolio: 'mf-loan', company: 'supra' },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { uploadedAt: 'desc' },
     take:    50,
     select: {
       id:           true,
@@ -21,7 +21,7 @@ export async function GET() {
       status:       true,
       errors:       true,
       uploadedBy:   true,
-      createdAt:    true,
+      uploadedAt:   true,
       reportDate:   true,
     },
   });

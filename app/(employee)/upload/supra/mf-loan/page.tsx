@@ -21,7 +21,7 @@ type HistoryItem = {
   rowCount:     number;
   status:       string;
   uploadedBy:   string;
-  createdAt:    string;
+  uploadedAt:   string;
   errors:       unknown;
 };
 
@@ -50,6 +50,7 @@ export default function MfLoanUploadPage() {
   const [history,    setHistory]    = useState<HistoryItem[]>([]);
   const xhrRef       = useRef<XMLHttpRequest | null>(null);
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function loadHistory() {
     try {
@@ -114,6 +115,7 @@ export default function MfLoanUploadPage() {
           setResults(data.results ?? []);
           setStage("done");
           setFiles([]);
+          if (fileInputRef.current) fileInputRef.current.value = '';
           await loadHistory();
         } else {
           setStage("error");
@@ -170,6 +172,7 @@ export default function MfLoanUploadPage() {
           <p className="text-gray-700 font-medium">Click to select .xlsx / .xls files</p>
           <p className="text-xs text-gray-400 mt-1">Multiple files supported · Balance Statement &amp; Transaction Statement</p>
           <input
+            ref={fileInputRef}
             type="file" multiple accept=".xlsx,.xls" className="hidden"
             onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           />
@@ -291,7 +294,7 @@ export default function MfLoanUploadPage() {
                     </td>
                     <td className="pr-3 text-gray-500">{h.uploadedBy}</td>
                     <td className="text-gray-500 text-xs whitespace-nowrap">
-                      {new Date(h.createdAt).toLocaleString("en-IN", {
+                      {new Date(h.uploadedAt).toLocaleString("en-IN", {
                         day: "2-digit", month: "short", year: "numeric",
                         hour: "2-digit", minute: "2-digit",
                       })}

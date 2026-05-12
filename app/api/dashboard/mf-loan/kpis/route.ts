@@ -2,10 +2,8 @@
  * GET /api/dashboard/mf-loan/kpis?period=FTD|MTD|YTD[&date=YYYY-MM-DD][&month=YYYY-MM][&year=YYYY]
  *
  * Returns the latest MfLoanSnapshot KPIs for the requested period.
- * Period resolution mirrors the gold-loan pattern:
- *   FTD  → most recent snapshot on the requested day  (default: today)
- *   MTD  → most recent snapshot in the requested month (default: current month)
- *   YTD  → most recent snapshot in the requested year  (default: current year)
+ * Falls back to the most recent snapshot ever if no snapshot exists in the
+ * requested window (prevents a blank dashboard on days with no upload).
  */
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
@@ -19,15 +17,23 @@ async function resolveMfSnapshot(
   const period = (searchParams.get('period') ?? 'FTD').toUpperCase();
   const now    = new Date();
 
+  // Helper: fall back to the latest snapshot ever if window query returns null
+  const latestEver = () =>
+    prisma.mfLoanSnapshot.findFirst({
+      where:   { company },
+      orderBy: { snapshotDate: 'desc' },
+    });
+
   if (period === 'FTD') {
     const dateStr = searchParams.get('date');
     const day     = dateStr ? new Date(dateStr) : new Date();
     const start   = new Date(day); start.setHours(0, 0, 0, 0);
     const end     = new Date(day); end.setHours(23, 59, 59, 999);
-    return prisma.mfLoanSnapshot.findFirst({
+    const snap = await prisma.mfLoanSnapshot.findFirst({
       where:   { company, snapshotDate: { gte: start, lte: end } },
       orderBy: { snapshotDate: 'desc' },
     });
+    return snap ?? await latestEver();
   }
 
   if (period === 'MTD') {
@@ -35,10 +41,11 @@ async function resolveMfSnapshot(
     const ref      = monthStr ? new Date(`${monthStr}-01`) : now;
     const start    = new Date(ref.getFullYear(), ref.getMonth(), 1, 0, 0, 0, 0);
     const end      = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
-    return prisma.mfLoanSnapshot.findFirst({
+    const snap = await prisma.mfLoanSnapshot.findFirst({
       where:   { company, snapshotDate: { gte: start, lte: end } },
       orderBy: { snapshotDate: 'desc' },
     });
+    return snap ?? await latestEver();
   }
 
   // YTD
@@ -46,10 +53,11 @@ async function resolveMfSnapshot(
   const year    = yearStr ? parseInt(yearStr, 10) : now.getFullYear();
   const start   = new Date(year, 0, 1, 0, 0, 0, 0);
   const end     = new Date(year, 11, 31, 23, 59, 59, 999);
-  return prisma.mfLoanSnapshot.findFirst({
+  const snap = await prisma.mfLoanSnapshot.findFirst({
     where:   { company, snapshotDate: { gte: start, lte: end } },
     orderBy: { snapshotDate: 'desc' },
   });
+  return snap ?? await latestEver();
 }
 
 export async function GET(req: Request) {
