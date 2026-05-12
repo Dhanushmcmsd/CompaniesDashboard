@@ -1,17 +1,16 @@
 /**
  * POST /api/upload/mf-loan
- * Accepts one or more .xlsx files (Balance Statement + Transaction Statement).
- * Detects file type by filename AND header sniffing.
- * Parses, calculates KPIs, and upserts a MfLoanSnapshot in the DB.
+ * Smart detection: detects file type from column headers, no filename convention needed.
+ * Returns detailed parse results including matched/missing columns per file.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession }          from 'next-auth';
 import { authOptions }               from '@/lib/auth';
 import { prisma }                    from '@/lib/prisma';
 import {
+  detectMfFile,
   parseMfLoanBalanceStatement,
   parseMfLoanTransactionStatement,
-  detectMfFileType,
 } from '@/lib/mf-loan/excel-parser';
 import {
   calculateMfLoanKPIs,
@@ -35,56 +34,78 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
 
-    const results: { fileName: string; fileType: string; rowCount: number; status: string; errors: string[] }[] = [];
+    const results: {
+      fileName:       string;
+      fileType:       string;
+      detectedVia:    string;
+      confidence:     string;
+      matchedColumns: string[];
+      missingColumns: string[];
+      rowCount:       number;
+      status:         string;
+      errors:         string[];
+    }[] = [];
+
     let balanceRows: MfLoanBalanceRow[]     = [];
     let txnRows:     MfLoanTransactionRow[] = [];
     const snapshotDate = new Date();
 
     for (const file of files) {
-      const buffer   = Buffer.from(await file.arrayBuffer());
-      // Pass buffer so detectMfFileType can sniff headers if filename is generic
-      const fileType = detectMfFileType(file.name, buffer);
+      const buffer    = Buffer.from(await file.arrayBuffer());
+      const detection = detectMfFile(file.name, buffer);
       const errors: string[] = [];
       let rowCount = 0;
 
-      try {
-        if (fileType === 'Balance Statement') {
-          const rows  = parseMfLoanBalanceStatement(buffer);
-          balanceRows = rows;
-          rowCount    = rows.length;
-        } else if (fileType === 'Transaction Statement') {
-          const rows = parseMfLoanTransactionStatement(buffer);
-          txnRows    = rows;
-          rowCount   = rows.length;
-        } else {
-          errors.push(
-            `Could not detect file type for "${file.name}". ` +
-            `Rename file to include "balance" or "transaction", or ensure correct column headers.`,
-          );
-        }
-      } catch (parseErr: unknown) {
+      if (detection.confidence === 'none') {
         errors.push(
-          parseErr instanceof Error ? parseErr.message : String(parseErr),
+          `Could not detect file type for "${file.name}". ` +
+          `No matching columns found for either Balance Statement or Transaction Statement.`,
         );
+      } else {
+        try {
+          if (detection.fileType === 'Balance Statement') {
+            const rows  = parseMfLoanBalanceStatement(buffer);
+            balanceRows = rows;
+            rowCount    = rows.length;
+            if (detection.missingColumns.length > 0) {
+              errors.push(`Optional columns not found: ${detection.missingColumns.join(', ')} — those KPIs will default to 0.`);
+            }
+          } else if (detection.fileType === 'Transaction Statement') {
+            const rows = parseMfLoanTransactionStatement(buffer);
+            txnRows    = rows;
+            rowCount   = rows.length;
+          }
+        } catch (parseErr: unknown) {
+          errors.push(parseErr instanceof Error ? parseErr.message : String(parseErr));
+        }
       }
 
       await prisma.uploadBatch.create({
         data: {
           company:      'supra',
           portfolio:    'mf-loan',
-          fileType,
+          fileType:     detection.fileType,
           originalName: file.name,
           uploadedBy:   session.user.email ?? 'unknown',
           rowCount,
-          status:       errors.length ? 'error' : 'done',
-          errors:       errors.length ? errors : null,
+          status:  detection.confidence === 'none' ? 'error' : errors.some((e) => !e.startsWith('Optional')) ? 'error' : 'done',
+          errors:  errors.length ? errors : null,
         },
       });
 
-      results.push({ fileName: file.name, fileType, rowCount, status: errors.length ? 'error' : 'done', errors });
+      results.push({
+        fileName:       file.name,
+        fileType:       detection.fileType,
+        detectedVia:    detection.detectedVia,
+        confidence:     detection.confidence,
+        matchedColumns: detection.matchedColumns,
+        missingColumns: detection.missingColumns,
+        rowCount,
+        status: detection.confidence === 'none' ? 'error' : 'done',
+        errors,
+      });
     }
 
-    // Save snapshot whenever at least a Balance Statement was parsed
     if (balanceRows.length > 0) {
       try {
         const kpis      = calculateMfLoanKPIs(balanceRows, txnRows, snapshotDate);

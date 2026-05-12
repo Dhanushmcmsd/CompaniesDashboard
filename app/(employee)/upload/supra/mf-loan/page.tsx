@@ -1,288 +1,171 @@
-"use client";
+'use client';
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState, useRef } from 'react';
+import { useSession }       from 'next-auth/react';
 
-type UploadResult = {
-  fileName:  string;
-  fileType:  string;
-  rowCount:  number;
-  status:    string;
-  errors:    string[];
-};
-
-type HistoryItem = {
-  id:           string;
-  fileType:     string;
-  originalName: string;
-  reportDate:   string | null;
-  rowCount:     number;
-  status:       string;
-  uploadedBy:   string;
-  uploadedAt:   string;
-  errors:       unknown;
-};
-
-type Stage = "idle" | "uploading" | "processing" | "done" | "error";
-
-function detectTypeByFilename(name: string) {
-  const n = name.toLowerCase();
-  if (n.includes("balance") || n.includes("bal stmt")) return "Balance Statement";
-  if (n.includes("transaction") || n.includes("txn") || n.includes("trans stmt")) return "Transaction Statement";
-  return "Unknown";
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024)            return `${bytes} B`;
-  if (bytes < 1024 * 1024)     return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  done:    "bg-green-100 text-green-800",
-  error:   "bg-red-100 text-red-800",
-  pending: "bg-yellow-100 text-yellow-800",
-  noted:   "bg-blue-100 text-blue-800",
+type ParseResult = {
+  fileName:       string;
+  fileType:       string;
+  detectedVia:    string;
+  confidence:     string;
+  matchedColumns: string[];
+  missingColumns: string[];
+  rowCount:       number;
+  status:         string;
+  errors:         string[];
 };
 
 export default function MfLoanUploadPage() {
-  const [files, setFiles]           = useState<File[]>([]);
-  const [stage, setStage]           = useState<Stage>("idle");
-  const [progress, setProgress]     = useState(0);
-  const [slowNotice, setSlowNotice] = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const [results, setResults]       = useState<UploadResult[]>([]);
-  const [history, setHistory]       = useState<HistoryItem[]>([]);
-  const xhrRef                      = useRef<XMLHttpRequest | null>(null);
-  const slowTimerRef                = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { data }                      = useSession();
+  const [files, setFiles]             = useState<File[]>([]);
+  const [uploading, setUploading]     = useState(false);
+  const [progress, setProgress]       = useState(0);
+  const [results, setResults]         = useState<ParseResult[] | null>(null);
+  const [dragOver, setDragOver]       = useState(false);
+  const inputRef                      = useRef<HTMLInputElement>(null);
 
-  async function loadHistory() {
-    try {
-      const res  = await fetch("/api/upload/mf-loan/history", { cache: "no-store" });
-      const data = await res.json();
-      setHistory(data.items ?? []);
-    } catch {
-      // silently ignore
-    }
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = Array.from(e.dataTransfer.files).filter((f) => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+    setFiles((prev) => [...prev, ...dropped]);
   }
 
-  useEffect(() => { loadHistory(); }, []);
-
-  const uploadLabel = useMemo(
-    () => `Upload & Process ${files.length} file${files.length !== 1 ? "s" : ""}`,
-    [files.length],
-  );
-
-  function resetTransientState() {
-    setProgress(0);
-    setSlowNotice(false);
-    setError(null);
-  }
-
-  function abortUpload() {
-    xhrRef.current?.abort();
-    xhrRef.current = null;
-    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
-    setStage("idle");
-    resetTransientState();
-  }
-
-  function onUpload() {
+  async function handleUpload() {
     if (!files.length) return;
-    setStage("uploading");
-    setResults([]);
-    resetTransientState();
+    setUploading(true);
+    setProgress(0);
+    setResults(null);
 
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
+    files.forEach((f) => fd.append('files', f));
 
-    const xhr = new XMLHttpRequest();
-    xhrRef.current = xhr;
-    xhr.open("POST", "/api/upload/mf-loan");
-    xhr.responseType = "text";
-    xhr.timeout = 120_000;
-
-    slowTimerRef.current = setTimeout(() => setSlowNotice(true), 90_000);
-
-    xhr.upload.onprogress = (evt) => {
-      if (evt.lengthComputable) {
-        setProgress(Math.max(1, Math.min(99, Math.round((evt.loaded / evt.total) * 100))));
-      }
-    };
-
-    xhr.onload = async () => {
-      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
-      try {
-        let data: { results?: UploadResult[]; error?: string } = {};
-        try { data = JSON.parse(xhr.responseText || "{}"); } catch {
-          setStage("error");
-          setError("Server returned invalid JSON");
-          return;
-        }
-        if (xhr.status >= 200 && xhr.status < 300) {
-          setProgress(100);
-          setResults(data.results ?? []);
-          setStage("done");
-          setFiles([]);
-          await loadHistory();
-        } else {
-          setStage("error");
-          setError(data.error ?? "Upload failed");
-        }
-      } finally {
-        xhrRef.current = null;
-      }
-    };
-
-    xhr.onerror   = () => { if (slowTimerRef.current) clearTimeout(slowTimerRef.current); xhrRef.current = null; setStage("error"); setError("Network error — please retry."); };
-    xhr.ontimeout = () => { if (slowTimerRef.current) clearTimeout(slowTimerRef.current); xhrRef.current = null; setStage("error"); setError("Server timeout — please retry."); };
-    xhr.onabort   = () => { if (slowTimerRef.current) clearTimeout(slowTimerRef.current); xhrRef.current = null; setStage("idle"); };
-
-    xhr.send(fd);
+    await new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () => {
+        const data = JSON.parse(xhr.responseText);
+        setResults(data.results ?? []);
+        setUploading(false);
+        setFiles([]);
+        resolve();
+      };
+      xhr.onerror = () => { setUploading(false); resolve(); };
+      xhr.open('POST', '/api/upload/mf-loan');
+      xhr.send(fd);
+    });
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      <header>
-        <h1 className="text-2xl font-bold text-[#0f172a]">Upload Portal — Supra Pacific MF Loan</h1>
-        <p className="text-sm text-gray-500 mt-1">Upload one or more Excel statement files for processing</p>
-      </header>
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-[#0f172a]">MF Loan — Upload Statements</h1>
+        <p className="text-sm text-gray-500 mt-1">{data?.user?.company} · {data?.user?.name}</p>
+        <p className="text-xs text-gray-400 mt-1">
+          Upload Balance Statement and/or Transaction Statement.
+          <strong className="text-gray-600"> File names don’t matter</strong> — file type is auto-detected from column headers.
+        </p>
+      </div>
 
-      {/* File type guide */}
-      <section className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-2">
-        <p className="font-semibold">Expected File Types &amp; Required Columns:</p>
-        <div className="space-y-1">
-          <p><span className="font-medium">Balance Statement</span> — Customer Number · Principal Closing Balance · Rate of Interest · Disbursed Amount · Issue Date · DPD · Closing Principal Received · Closed On</p>
-          <p><span className="font-medium">Transaction Statement</span> — Loan Account Number · Transaction Date · Principal Dr · Total Received</p>
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors ${
+          dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+        }`}
+      >
+        <p className="text-gray-500 text-sm">Drag & drop .xlsx files here, or click to browse</p>
+        <input ref={inputRef} type="file" accept=".xlsx,.xls" multiple className="hidden"
+          onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])}
+        />
+      </div>
+
+      {/* Selected files list */}
+      {files.length > 0 && (
+        <ul className="space-y-1">
+          {files.map((f, i) => (
+            <li key={i} className="flex items-center justify-between bg-white rounded-xl border border-gray-100 px-4 py-2 text-sm">
+              <span className="text-gray-700">{f.name}</span>
+              <button onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-xs">Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Upload button */}
+      <button
+        onClick={handleUpload}
+        disabled={uploading || !files.length}
+        className="w-full bg-[#0f172a] text-white rounded-xl py-3 text-sm font-medium disabled:opacity-40 hover:bg-[#1e3a5f] transition"
+      >
+        {uploading ? `Uploading… ${progress}%` : `Upload ${files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : ''}`}
+      </button>
+
+      {uploading && (
+        <div className="w-full bg-gray-100 rounded-full h-2">
+          <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
         </div>
-        <p className="text-xs text-blue-600">File name must include &quot;balance&quot; or &quot;transaction&quot; for auto-detection.</p>
-      </section>
+      )}
 
-      {/* Upload area */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-        <label className="block border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 transition-colors">
-          <p className="text-gray-700 font-medium">Click to select .xlsx files</p>
-          <p className="text-xs text-gray-400 mt-1">Multiple files supported · Balance Statement · Transaction Statement</p>
-          <input
-            type="file" multiple accept=".xlsx" className="hidden"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          />
-        </label>
-
-        {!!files.length && (
-          <ul className="space-y-2">
-            {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex items-center justify-between border rounded-lg px-3 py-2 text-sm">
+      {/* Results */}
+      {results && (
+        <div className="space-y-4">
+          <h2 className="text-sm font-semibold text-gray-700">Upload Results</h2>
+          {results.map((r, i) => (
+            <div key={i} className={`rounded-2xl border p-4 space-y-2 ${
+              r.status === 'done' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+            }`}>
+              <div className="flex items-start justify-between">
                 <div>
-                  <p className="font-medium text-gray-800">{f.name}</p>
-                  <p className="text-xs text-gray-400">{formatBytes(f.size)} · {detectTypeByFilename(f.name)}</p>
+                  <p className="font-medium text-sm text-gray-800">{r.fileName}</p>
+                  <p className="text-xs text-gray-500">
+                    Detected as <strong>{r.fileType}</strong> via <span className="italic">{r.detectedVia}</span>
+                    {' '}· <span className={r.confidence === 'high' ? 'text-green-600' : 'text-yellow-600'}>{r.confidence} confidence</span>
+                    {' '}· {r.rowCount} rows
+                  </p>
                 </div>
-                <button
-                  onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="text-red-500 hover:text-red-700 px-2 text-lg leading-none"
-                >×</button>
-              </li>
-            ))}
-          </ul>
-        )}
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  r.status === 'done' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                }`}>{r.status}</span>
+              </div>
 
-        <div className="flex gap-2">
-          <button
-            disabled={!files.length || stage === "uploading" || stage === "processing"}
-            onClick={onUpload}
-            className="bg-[#0f172a] text-white rounded-xl px-4 py-2 text-sm disabled:opacity-50 hover:bg-slate-700 transition-colors"
-          >{uploadLabel}</button>
-          <button
-            disabled={stage !== "uploading" && stage !== "processing"}
-            onClick={abortUpload}
-            className="bg-gray-100 text-gray-700 rounded-xl px-4 py-2 text-sm disabled:opacity-50"
-          >Abort / Reset</button>
-        </div>
+              {/* Matched columns */}
+              {r.matchedColumns.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">✅ Matched columns:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {r.matchedColumns.map((c) => (
+                      <span key={c} className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5">{c}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-        {(stage === "uploading" || stage === "processing") && (
-          <div>
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} />
+              {/* Missing columns */}
+              {r.missingColumns.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">⚠️ Optional columns not found (will default to 0):</p>
+                  <div className="flex flex-wrap gap-1">
+                    {r.missingColumns.map((c) => (
+                      <span key={c} className="text-xs bg-yellow-100 text-yellow-700 rounded px-2 py-0.5">{c}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Errors */}
+              {r.errors.filter((e) => !e.startsWith('Optional')).map((e, j) => (
+                <p key={j} className="text-xs text-red-600">{e}</p>
+              ))}
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {stage === "uploading" ? `Uploading… ${progress}%` : "Processing — calculating KPIs…"}
-            </p>
-            {slowNotice && (
-              <p className="text-xs text-amber-600 mt-1">
-                Still working — large file is being processed server-side.
-              </p>
-            )}
-          </div>
-        )}
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        {!!results.length && (
-          <ul className="space-y-2">
-            {results.map((r, idx) => (
-              <li
-                key={idx}
-                className={`rounded-lg border p-3 text-sm ${
-                  r.status === "done" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
-                }`}
-              >
-                <p className="font-semibold text-gray-800">{r.fileName}</p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  Type: <strong>{r.fileType}</strong> · Rows parsed: <strong>{r.rowCount.toLocaleString("en-IN")}</strong> · Status: <strong>{r.status}</strong>
-                </p>
-                {r.errors.length > 0 && (
-                  <ul className="mt-1 text-xs text-red-600 list-disc list-inside">
-                    {r.errors.slice(0, 3).map((e, i) => <li key={i}>{e}</li>)}
-                    {r.errors.length > 3 && <li>…and {r.errors.length - 3} more</li>}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* Upload history */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-        <h2 className="font-semibold text-[#0f172a] mb-3">Recent Uploads</h2>
-        {history.length === 0 ? (
-          <p className="text-sm text-gray-400">No uploads yet.</p>
-        ) : (
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b text-gray-500 text-xs uppercase tracking-wide">
-                  <th className="py-2 pr-3">File</th>
-                  <th className="pr-3">Type</th>
-                  <th className="pr-3">Report Date</th>
-                  <th className="pr-3">Rows</th>
-                  <th className="pr-3">Status</th>
-                  <th className="pr-3">Uploaded By</th>
-                  <th>Uploaded At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((h) => (
-                  <tr key={h.id} className="border-b hover:bg-gray-50">
-                    <td className="py-2 pr-3 font-medium text-gray-800 max-w-[180px] truncate">{h.originalName}</td>
-                    <td className="pr-3 text-gray-500">{h.fileType}</td>
-                    <td className="pr-3 text-gray-500">
-                      {h.reportDate ? new Date(h.reportDate).toLocaleDateString("en-IN") : "—"}
-                    </td>
-                    <td className="pr-3">{(h.rowCount ?? 0).toLocaleString("en-IN")}</td>
-                    <td className="pr-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        STATUS_STYLES[h.status] ?? "bg-gray-100 text-gray-600"
-                      }`}>{h.status}</span>
-                    </td>
-                    <td className="pr-3 text-gray-500">{h.uploadedBy}</td>
-                    <td className="text-gray-500">{new Date(h.uploadedAt).toLocaleString("en-IN")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
