@@ -32,7 +32,11 @@ export async function GET(req: Request) {
         avgLTV:               snap.avgLTV,
         totalGoldWeight:      snap.totalGoldWeight,
         avgPresentRate:       snap.avgPresentRate,
+        avgRatePerGram:       snap.avgRatePerGram,
         avgGoldValuePerLoan:  snap.avgGoldValuePerLoan,
+        highRiskAmount:       snap.highRiskAmount,
+        newCustomerFromLoanBalance: snap.newCustomerFromLoanBalance,
+        newCustomerFromTxn:   snap.newCustomerFromTxn,
         // Disbursements — sourced from Transaction Statement when uploaded,
         // otherwise from Issue Date in Loan Balance Statement.
         newDisbursements:     snap.newDisbursements,   // FTD

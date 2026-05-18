@@ -15,9 +15,9 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       goldRate:         snap.avgPresentRate,
-      // goldValueMismatch: accounts where closingBalance > (goldWeight × presentRate)
-      // i.e. loan exceeds collateral value. Depends on accuracy of presentRate in upload.
-      highRiskCount:    snap.goldValueMismatch,
+      // Accounts where LTV > 75% based on loan balance vs. collateral value at uploaded rate.
+      highRiskCount:    snap.highRiskCount ?? 0,
+      highRiskAmount:   snap.highRiskAmount ?? 0,
       // highLTVAccounts: accounts where LTV > 85%
       highLTVCount:     snap.highLTVAccounts,
       // Row-level high-risk detail not stored in snapshot (counts only).

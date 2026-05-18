@@ -27,6 +27,12 @@ model GoldLoanSnapshot {
   avgLTV                Float
   avgPresentRate        Float
   avgGoldValuePerLoan   Float
+  avgRatePerGram        Float?
+  highRiskAmount        Float?
+  highRiskCount         Int?
+  newCustomerFromLoanBalance Int?
+  newCustomerFromTxn    Int?
+
   newDisbursements      Float
   mtdDisbursements      Float
   ytdDisbursements      Float
@@ -37,8 +43,14 @@ model GoldLoanSnapshot {
 
   totalOverdue          Float
   overdueCollection     Float
-  collectionEfficiency  Float
+  collectionEfficiency  Float?
   overduePercent        Float
+  sma0Amount            Float?
+  sma1Amount            Float?
+  sma2Amount            Float?
+  sma0Count             Int?
+  sma1Count             Int?
+  sma2Count             Int?
   overdueAccountNumbers Json?
 
   bucket0to30           Float

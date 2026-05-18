@@ -10,6 +10,7 @@ export type ParsedGoldLoanExcel = {
   rows: Record<string, unknown>[];
   rowCount: number;
   errors: string[];
+  warnings: string[];
   /** Populated for balance-sheet files: account numbers where DPD > 0.
    *  Used by the transaction-statement parser for overdue collection cross-reference. */
   overdueAccountNumbers: string[];
@@ -24,15 +25,30 @@ const FIELD_ALIASES: Record<string, string[]> = {
     "account num number",
     "account numnumber",
     "account number",
+    "account no",
+    "account no ",
     "loan account number",
+    "loan account no",
+    "acct no",
+    "acct number",
     "account num",
   ],
   customerId: ["customer number", "customer id", "customer code", "cust id"],
   customerName: ["customer name", "name"],
   branchName: ["branch name", "branch"],
-  disbursementDate: ["issue date", "disbursment date", "disbursement date", "disb date"],
+  disbursementDate: ["issue date", "disbursment date", "disbursement date", "disb date", "disbursement dt", "issue dt"],
   disbursedAmount: ["issue amount", "disbursed amount", "disbursement amount", "principal debit", "loan amount"],
-  closingBalance: ["closing balance", "closing balance cr", "principal closing amount", "balance"],
+  closingBalance: [
+    "closing balance",
+    "closing balance cr",
+    "principal closing amount",
+    "outstanding balance",
+    "outstanding amount",
+    "loan outstanding",
+    "total outstanding",
+    "current balance",
+    "balance",
+  ],
   openingBalance: ["opening balance"],
   principalCr: ["principal credit", "principal cr", "principal received", "principal collection"],
   principalDr: ["principal dr"],
@@ -53,9 +69,28 @@ const FIELD_ALIASES: Record<string, string[]> = {
   inventoryDate: ["inventory date"],
   loanPeriod: ["loan period"],
   loanPeriodType: ["loan period type"],
-  totalAmountReceived: ["amount received", "total amount received", "total amount", "collection amount"],
+  totalAmountReceived: [
+    "amount received",
+    "total amount received",
+    "total amount",
+    "collection amount",
+    "received amount",
+    "payment amount",
+    "cr amount",
+    "dr amount",
+    "transaction amount",
+    "net amount",
+  ],
   otherCharges: ["other charges", "other charges due"],
-  transactionDate: ["trandate", "tran date", "transaction date", "date"],
+  transactionDate: [
+    "trandate",
+    "tran date",
+    "transaction date",
+    "transaction dt",
+    "txn date",
+    "txndate",
+    "date",
+  ],
   tranMode: ["tran mode", "transaction mode", "mode"],
   isClosed: ["closed", "loan closed", "is closed"],
 };
@@ -152,8 +187,8 @@ function parseDate(value: unknown): Date | null {
   if (value == null || value === "") return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
   const raw = String(value).trim();
-  // DD-MM-YYYY
-  const m = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  // DD-MM-YYYY or DD/MM/YYYY
+  const m = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
   if (m) {
     const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
     return Number.isNaN(d.getTime()) ? null : d;
@@ -189,6 +224,7 @@ function toStringOrNull(v: unknown): string | null {
 
 export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): ParsedGoldLoanExcel {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const wb = XLSX.read(buffer, { type: "array", cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, raw: false });
@@ -202,6 +238,7 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
       rows: [],
       rowCount: 0,
       errors: ["Empty worksheet"],
+      warnings: [],
       overdueAccountNumbers: [],
     };
   }
@@ -248,6 +285,26 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
 
   // --- Row parsing ---
   const rows: Record<string, unknown>[] = [];
+
+  function rowValidationIssue(out: Record<string, unknown>, fileType: ParsedFileType): string | null {
+    const account = toStringOrNull(out.loanAccountNumber);
+    const hasAmount = out.totalAmountReceived != null || out.principalCr != null || out.interestRcvd != null || out.disbursedAmount != null || out.principalDr != null;
+
+    if (fileType === "balance") {
+      if (!account) return "missing loan account number";
+      if (out.closingBalance == null) return "missing closing balance / outstanding amount";
+    }
+    if (fileType === "transaction") {
+      if (!account) return "missing loan account number";
+      if (!(out.transactionDate instanceof Date)) return "missing transaction date";
+      if (!hasAmount) return "missing amount data (disbursement or collection)";
+    }
+    if (fileType === "interest-extract") {
+      if (!account) return "missing loan account number";
+      if (!hasAmount) return "missing principal/interest amount";
+    }
+    return null;
+  }
 
   for (let i = headerRowIndex + 1; i < matrix.length; i++) {
     const arr = matrix[i] ?? [];
@@ -309,7 +366,12 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     out.interestReceived  = iRcvd;
     out.principalInterestReceived = (pRcvd ?? 0) + (iRcvd ?? 0);
 
-    if (fileType !== "unknown") rows.push(out);
+    const validationIssue = fileType !== "unknown" ? rowValidationIssue(out, fileType) : null;
+    if (validationIssue) {
+      warnings.push(`Row ${i + 1}: ${validationIssue}. Row skipped.`);
+    } else if (fileType !== "unknown") {
+      rows.push(out);
+    }
   }
 
   // --- Overdue account numbers (balance sheet only) ---
@@ -331,6 +393,7 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     rows,
     rowCount: rows.length,
     errors,
+    warnings,
     overdueAccountNumbers,
   };
 }

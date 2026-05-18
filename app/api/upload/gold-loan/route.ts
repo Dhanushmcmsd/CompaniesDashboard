@@ -68,7 +68,7 @@ export async function POST(req: Request) {
           });
           status = "error";
         } else if (fileType === "balance") {
-          const kpis = calculateKPIs(parsed.rows);
+          const kpis = calculateKPIs(parsed.rows, [], parsed.reportDate ?? new Date());
           const overdueAccountNumbers = parsed.overdueAccountNumbers;
 
           const balancePayload = {
@@ -80,9 +80,11 @@ export async function POST(req: Request) {
             avgYield: kpis.avgYield,
             totalGoldWeight: kpis.totalGoldWeight,
             avgGoldWeightPerLoan: kpis.avgGoldWeightPerLoan,
+            avgRatePerGram: kpis.avgRatePerGram,
             avgLTV: kpis.avgLTV,
             avgPresentRate: kpis.avgPresentRate,
             avgGoldValuePerLoan: kpis.avgGoldValuePerLoan,
+            newCustomerFromLoanBalance: kpis.newCustomerFromLoanBalance,
             newDisbursements: kpis.newDisbursements,
             mtdDisbursements: kpis.mtdDisbursements,
             ytdDisbursements: kpis.ytdDisbursements,
@@ -97,6 +99,14 @@ export async function POST(req: Request) {
             bucket31to60: kpis.bucket31to60,
             bucket61to90: kpis.bucket61to90,
             bucket90plus: kpis.bucket90plus,
+            sma0Amount: kpis.sma0Amount,
+            sma1Amount: kpis.sma1Amount,
+            sma2Amount: kpis.sma2Amount,
+            sma0Count: kpis.sma0Count,
+            sma1Count: kpis.sma1Count,
+            sma2Count: kpis.sma2Count,
+            highRiskAmount: kpis.highRiskAmount,
+            highRiskCount: kpis.highRiskCount,
             branchAUM: kpis.branchAUM,
             productAUM: kpis.productAUM,
             branchDisbursement: kpis.branchDisbursement,
@@ -137,7 +147,7 @@ export async function POST(req: Request) {
             : [];
           const overdueSet = new Set<string>(overdueArr);
 
-          const txnKPIs = calculateKPIsFromTransaction(parsed.rows, overdueSet);
+          const txnKPIs = calculateKPIsFromTransaction(parsed.rows, overdueSet, parsed.reportDate ?? new Date());
 
           console.log(
             `[upload] ${file.name} → txn KPIs:`,
@@ -151,12 +161,12 @@ export async function POST(req: Request) {
             const totalOverdue = latestSnapshot.totalOverdue;
             const newODCollection = txnKPIs.overdueCollectionFromTxn;
             const newEfficiency =
-              totalOverdue > 0 ? (newODCollection / totalOverdue) * 100 : 0;
+              totalOverdue > 0 ? (newODCollection / totalOverdue) * 100 : null;
 
             const { calculateTransactionKPIs: calcTxnKPIs } = await import(
               "@/lib/gold-loan/transaction-calculator"
             );
-            const fullTxnKPIs = calcTxnKPIs(parsed.rows, [], totalOverdue);
+            const fullTxnKPIs = calcTxnKPIs(parsed.rows, [], totalOverdue, parsed.reportDate ?? new Date());
 
             const branchDisbForSnapshot = fullTxnKPIs.branchDisbursements.map((b) => ({
               branch: b.branch,
@@ -172,20 +182,22 @@ export async function POST(req: Request) {
                    "branchDisbursement" = $3::jsonb,
                    "newDisbursements" = $4,
                    "mtdDisbursements" = $5,
-                   "ytdDisbursements" = $6
-               WHERE id = $7`,
+                   "ytdDisbursements" = $6,
+                   "newCustomerFromTxn" = $7
+               WHERE id = $8`,
               newODCollection,
               newEfficiency,
               JSON.stringify(branchDisbForSnapshot),
               fullTxnKPIs.ftdDisbursement,
               fullTxnKPIs.mtdDisbursement,
               fullTxnKPIs.ytdDisbursement,
-              latestSnapshot.id
+              txnKPIs.newCustomerFromTxn,
+              latestSnapshot.id,
             );
 
             console.log(
               `[upload] Patched snapshot ${latestSnapshot.id}:`,
-              `collectionEfficiency=${newEfficiency.toFixed(2)}%`,
+              `collectionEfficiency=${newEfficiency != null ? newEfficiency.toFixed(2) + '%' : 'null'}`,
               `ftdDisb=${fullTxnKPIs.ftdDisbursement.toFixed(2)}`,
               `mtdDisb=${fullTxnKPIs.mtdDisbursement.toFixed(2)}`,
               `ytdDisb=${fullTxnKPIs.ytdDisbursement.toFixed(2)}`

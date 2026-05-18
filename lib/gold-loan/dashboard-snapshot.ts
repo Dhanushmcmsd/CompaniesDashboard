@@ -17,14 +17,18 @@ export type GoldLoanDashboardSnapshot = {
     gnpaPct: number;
     gnpaAmount: number;
     nnpaPct: number;
-    collectionEfficiency: number;
+    collectionEfficiency: number | null;
     overdueCollection: number;
     totalOverdue: number;
     overduePercent: number;
     avgLTV: number;
     totalGoldWeight: number;
     avgPresentRate: number;
+    avgRatePerGram: number;
     avgGoldValuePerLoan: number;
+    highRiskAmount: number;
+    newCustomerFromLoanBalance: number;
+    newCustomerFromTxn: number | null;
     newDisbursements: number;
     mtdDisbursements: number;
     ytdDisbursements: number;
@@ -62,6 +66,7 @@ export type GoldLoanDashboardSnapshot = {
   highRisk: {
     goldRate: number;
     highRiskCount: number;
+    highRiskAmount: number;
     highLTVCount: number;
     accounts: unknown[];
     dataNote?: string;
@@ -127,7 +132,7 @@ function buildAlerts(snap: GoldLoanSnapshot) {
       count: snap.auctionCases,
     });
   }
-  if (snap.collectionEfficiency < 80) {
+  if (snap.collectionEfficiency != null && snap.collectionEfficiency < 80) {
     alerts.push({
       type: "low-collection",
       severity: "medium",
@@ -197,7 +202,7 @@ export function aggregateGoldLoanDashboard(
         ftdDisbursements: 0,
       },
       closures: null,
-      highRisk: { goldRate: 0, highRiskCount: 0, highLTVCount: 0, accounts: [] },
+      highRisk: { goldRate: 0, highRiskCount: 0, highRiskAmount: 0, highLTVCount: 0, accounts: [] },
       npaRisk: null,
       goldLtv: null,
       branchPerformance: [],
@@ -223,7 +228,11 @@ export function aggregateGoldLoanDashboard(
       avgLTV: snap.avgLTV,
       totalGoldWeight: snap.totalGoldWeight,
       avgPresentRate: snap.avgPresentRate,
+      avgRatePerGram: snap.avgRatePerGram ?? 0,
       avgGoldValuePerLoan: snap.avgGoldValuePerLoan,
+      highRiskAmount: snap.highRiskAmount ?? 0,
+      newCustomerFromLoanBalance: snap.newCustomerFromLoanBalance ?? 0,
+      newCustomerFromTxn: snap.newCustomerFromTxn ?? null,
       newDisbursements: snap.newDisbursements,
       mtdDisbursements: snap.mtdDisbursements,
       ytdDisbursements: snap.ytdDisbursements,
@@ -247,13 +256,17 @@ export function aggregateGoldLoanDashboard(
       totalOverdue: snap.totalOverdue,
       overduePercent: snap.overduePercent,
       overdueCollection: snap.overdueCollection,
-      collectionEfficiency: snap.collectionEfficiency,
+      collectionEfficiency: snap.collectionEfficiency ?? 0,
     },
     newCustomers: {
       totalCustomers: snap.totalCustomers,
       totalAccounts: snap.totalAccounts,
-      newCustomers: snap.newDisbursements ?? 0,
-      newCustomersNote: "FTD disbursement amount (new borrower count not yet available)",
+      newCustomers: snap.newCustomerFromLoanBalance || snap.newCustomerFromTxn || 0,
+      newCustomersNote: snap.newCustomerFromLoanBalance
+        ? "New borrower count based on today’s loan balance disbursements"
+        : snap.newCustomerFromTxn != null
+          ? "New borrower count based on today’s transaction disbursements"
+          : "FTD disbursement amount (new borrower count not available)",
       mtdDisbursements: snap.mtdDisbursements,
       ftdDisbursements: snap.newDisbursements,
     },
@@ -265,7 +278,8 @@ export function aggregateGoldLoanDashboard(
     },
     highRisk: {
       goldRate: snap.avgPresentRate,
-      highRiskCount: snap.goldValueMismatch,
+      highRiskAmount: snap.highRiskAmount ?? 0,
+      highRiskCount: snap.highRiskCount ?? 0,
       highLTVCount: snap.highLTVAccounts,
       accounts: [],
       dataNote: "Counts based on Rate Per Gram column in uploaded file. Ensure this matches current market gold rate.",
