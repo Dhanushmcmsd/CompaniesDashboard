@@ -18,7 +18,6 @@ export async function GET() {
     return NextResponse.json({
       data: {
         mtdDisbursements:  snap.mtdDisbursements,
-        ytdDisbursements:  snap.ytdDisbursements,
         overdueCollection: snap.overdueCollection,
         totalOverdue:      snap.totalOverdue,
       },

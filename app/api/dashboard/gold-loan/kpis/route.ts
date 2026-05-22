@@ -40,8 +40,7 @@ export async function GET(req: Request) {
         // Disbursements — sourced from Transaction Statement when uploaded,
         // otherwise from Issue Date in Loan Balance Statement.
         newDisbursements:     snap.newDisbursements,   // FTD
-        mtdDisbursements:     snap.mtdDisbursements,   // current calendar month
-        ytdDisbursements:     snap.ytdDisbursements,   // current financial year
+        mtdDisbursements:     snap.mtdDisbursements,   // financial year to date (Apr 1 to today)
       },
     });
   } catch (e) {

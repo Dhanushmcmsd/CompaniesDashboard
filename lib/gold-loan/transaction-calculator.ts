@@ -68,8 +68,8 @@ export type TransactionKPISnapshot = {
 
   // ── Disbursements ──────────────────────────────────────────────────────
   ftdDisbursement: number;       // today
-  mtdDisbursement: number;       // month-to-date
-  ytdDisbursement: number;       // year-to-date
+  mtdDisbursement: number;       // financial year to date (Apr 1 to today)
+  calendarMonthDisbursement: number; // current calendar month
   disbursementCount: number;     // number of disbursement transactions
 
   // ── Breakdowns ────────────────────────────────────────────────────────
@@ -244,8 +244,8 @@ export function calculateTransactionKPIs(
 
   // ── B. Disbursement KPIs ─────────────────────────────────────────────────
   let ftdDisbursement   = 0;
+  let calendarMonthDisbursement = 0;
   let mtdDisbursement   = 0;
-  let ytdDisbursement   = 0;
   const disbursementCount = disbursementRows.length;
 
   // Daily trend map
@@ -269,8 +269,8 @@ export function calculateTransactionKPIs(
       const account = String(r.loanAccountNumber ?? '').trim();
       if (account) newCustomerAccounts.add(account);
     }
-    if (isMTD(date, asOnDate))   mtdDisbursement += amt;
-    if (isYTD(date, asOnDate))   ytdDisbursement += amt;
+    if (isMTD(date, asOnDate))               calendarMonthDisbursement += amt;
+    if (isYTD(date, asOnDate))               mtdDisbursement += amt;
 
     // Daily trend
     const dateKey = toDateKey(date);
@@ -312,7 +312,7 @@ export function calculateTransactionKPIs(
     collection,
     ftdDisbursement,
     mtdDisbursement,
-    ytdDisbursement,
+    calendarMonthDisbursement,
     disbursementCount,
     dailyDisbursements,
     branchDisbursements,
@@ -329,7 +329,7 @@ function emptyTransactionSnapshot(): TransactionKPISnapshot {
     principalCollected: 0, interestCollected: 0, totalCollected: 0,
     overdueCollection: 0, collectionEfficiencyTxn: 0,
     collection: { principalReceived: 0, interestReceived: 0, otherCharges: 0, totalCollected: 0 },
-    ftdDisbursement: 0, mtdDisbursement: 0, ytdDisbursement: 0, disbursementCount: 0,
+    ftdDisbursement: 0, mtdDisbursement: 0, calendarMonthDisbursement: 0, disbursementCount: 0,
     dailyDisbursements: [], branchDisbursements: [], branchCollections: [],
     totalTransactions: 0, collectionTransactions: 0, disbursementTransactions: 0,
     newCustomerFromTxn: 0,

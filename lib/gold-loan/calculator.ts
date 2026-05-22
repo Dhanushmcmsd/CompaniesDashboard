@@ -69,7 +69,7 @@ export type KPISnapshot = {
   newCustomerFromLoanBalance: number
   newDisbursements: number
   mtdDisbursements: number
-  ytdDisbursements: number
+  calendarMonthDisbursements: number
   gnpaAmount: number
   gnpaPct: number
   nnpaPct: number
@@ -301,6 +301,8 @@ export function calculateKPIs(
     })
     .filter((v) => v > 0)
   const avgLTV = avg(ltvValues)
+  // TODO: presentRate is sourced from uploaded file only. No live gold market rate feed exists.
+  // If the file's Present Rate column is stale, LTV/High Risk/Avg Gold Value will be incorrect.
 
   const highRiskRows = ltvRows.filter((r) => {
     const goldValue = safe(r.goldWeight) * safe(r.presentRate)
@@ -310,18 +312,16 @@ export function calculateKPIs(
   const highRiskAmount = highRiskRows.reduce((s, r) => s + safe(r.closingBalance), 0)
   const highRiskCount = highRiskRows.length
 
-  // ── Disbursements (FTD / MTD / YTD) — from balance sheet ─────────────────
+  // ── Disbursements (FTD / MTD) — from balance sheet ────────────────────────
   // NOTE: if txnRows are provided, transactionKPIs.ftdDisbursement etc. are
   // more accurate (sourced from TranDate + Tran Mode = 'A').
   // Balance-sheet fallback: uses Issue Date / Disbursement Date column.
-  // MTD = current calendar month (same month as today).
-  // YTD = Indian financial year starting April 1.
-  const periodStart = new Date(asOnDate.getFullYear(), asOnDate.getMonth(), 1)
-  const ytdStart = getYtdStart(asOnDate)
+  // MTD = current financial year starting 1 April to today.
+  // calendarMonthDisbursements = current calendar month only.
 
   let newDisbursements = 0
+  let calendarMonthDisbursements = 0
   let mtdDisbursements = 0
-  let ytdDisbursements = 0
   const newCustomerAccounts = new Set<string>()
   for (const r of rows) {
     const date = r.disbursementDate instanceof Date ? r.disbursementDate : null
@@ -331,16 +331,16 @@ export function calculateKPIs(
       const account = String(r.loanAccountNumber ?? '').trim()
       if (account) newCustomerAccounts.add(account)
     }
-    if (isMTD(date, asOnDate))   mtdDisbursements += amt
-    if (isYTD(date, asOnDate))   ytdDisbursements += amt
+    if (isMTD(date, asOnDate))         calendarMonthDisbursements += amt
+    if (isYTD(date, asOnDate))         mtdDisbursements += amt
   }
   const newCustomerFromLoanBalance = newCustomerAccounts.size
 
-  // ── GNPA (DPD > 90) ───────────────────────────────────────────────────────
-  const gnpaRows    = rows.filter((r) => safe(r.dpd) > 90)
+  // ── GNPA (DPD >= 90) ──────────────────────────────────────────────────────
+  const gnpaRows    = rows.filter((r) => safe(r.dpd) >= 90)
   const gnpaAmount  = gnpaRows.reduce((s, r) => s + safe(r.closingBalance), 0)
   const gnpaPct     = totalAUM > 0 ? (gnpaAmount / totalAUM) * 100 : 0
-  const nnpaPct     = gnpaPct * 0.65 // approximation until NNPA source available
+  const nnpaPct     = gnpaPct * 0.65 // TODO: NNPA = GNPA% × 0.65 is a hardcoded approximation. Real NNPA requires provision data not available in any uploaded file.
 
   // ── Overdue (DPD > 0) ────────────────────────────────────────────────────
   const overdueRows   = rows.filter((r) => safe(r.dpd) > 0)
@@ -357,28 +357,8 @@ export function calculateKPIs(
     ? txnKPIs.overdueCollection
     : overdueRows.reduce((s, r) => s + safe(r.principalCr) + safe(r.interestRcvd), 0);
 
-  const openingOverdueBalance = rows
-    .filter((r) => {
-      const disbDate = r.disbursementDate instanceof Date ? r.disbursementDate : null
-      return safe(r.dpd) > 0 && disbDate != null && disbDate < periodStart
-    })
-    .reduce((s, r) => s + safe(r.closingBalance), 0)
-
-  const freshOverdueInPeriod = rows
-    .filter((r) => {
-      const disbDate = r.disbursementDate instanceof Date ? r.disbursementDate : null
-      return (
-        safe(r.dpd) > 0 &&
-        disbDate != null &&
-        disbDate >= periodStart &&
-        disbDate <= asOnDate
-      )
-    })
-    .reduce((s, r) => s + safe(r.closingBalance), 0)
-
-  const overdueDenominator = openingOverdueBalance + freshOverdueInPeriod
-  const collectionEfficiency = overdueDenominator > 0
-    ? (overdueCollection / overdueDenominator) * 100
+  const collectionEfficiency = totalOverdue > 0
+    ? (overdueCollection / totalOverdue) * 100
     : null
 
   // ── DPD Buckets ──────────────────────────────────────────────────────────
@@ -429,10 +409,11 @@ export function calculateKPIs(
     const date = r.disbursementDate instanceof Date ? r.disbursementDate : null
     const amt  = safe(r.disbursedAmount)
     const curr = disbMap.get(b) ?? { ftd: 0, mtd: 0, ytd: 0 }
+    const isCurrentFY = isYTD(date, asOnDate)
     disbMap.set(b, {
       ftd: curr.ftd + (isSameDay(date, asOnDate) ? amt : 0),
-      mtd: curr.mtd + (isMTD(date, asOnDate)   ? amt : 0),
-      ytd: curr.ytd + (isYTD(date, asOnDate)   ? amt : 0),
+      mtd: curr.mtd + (isCurrentFY ? amt : 0),
+      ytd: curr.ytd + (isCurrentFY ? amt : 0),
     })
   }
   const branchDisbursement: BranchDisb[] = Array.from(disbMap.entries())
@@ -444,7 +425,7 @@ export function calculateKPIs(
     const b    = String(r.branchName ?? "Unknown")
     const curr = bnpaMap.get(b) ?? { gnpaAmount: 0, totalAUM: 0 }
     bnpaMap.set(b, {
-      gnpaAmount: curr.gnpaAmount + (safe(r.dpd) > 90 ? safe(r.closingBalance) : 0),
+      gnpaAmount: curr.gnpaAmount + (safe(r.dpd) >= 90 ? safe(r.closingBalance) : 0),
       totalAUM:   curr.totalAUM   + safe(r.closingBalance),
     })
   }
@@ -486,7 +467,7 @@ export function calculateKPIs(
   return {
     totalAUM, totalAccounts, totalCustomers, avgTicketSize, avgYield,
     totalGoldWeight, avgGoldWeightPerLoan, avgLTV, avgPresentRate, avgGoldValuePerLoan,
-    avgRatePerGram, newCustomerFromLoanBalance, newDisbursements, mtdDisbursements, ytdDisbursements,
+    avgRatePerGram, newCustomerFromLoanBalance, newDisbursements, mtdDisbursements, calendarMonthDisbursements,
     gnpaAmount, gnpaPct, nnpaPct,
     totalOverdue, overdueCollection, collectionEfficiency, overduePercent,
     bucket0to30, bucket31to60, bucket61to90, bucket90plus,
@@ -502,7 +483,7 @@ function emptySnapshot(): KPISnapshot {
   return {
     totalAUM: 0, totalAccounts: 0, totalCustomers: 0, avgTicketSize: 0, avgYield: 0,
     totalGoldWeight: 0, avgGoldWeightPerLoan: 0, avgLTV: 0, avgPresentRate: 0, avgGoldValuePerLoan: 0,
-    avgRatePerGram: 0, newCustomerFromLoanBalance: 0, newDisbursements: 0, mtdDisbursements: 0, ytdDisbursements: 0,
+    avgRatePerGram: 0, newCustomerFromLoanBalance: 0, newDisbursements: 0, mtdDisbursements: 0, calendarMonthDisbursements: 0,
     gnpaAmount: 0, gnpaPct: 0, nnpaPct: 0,
     totalOverdue: 0, overdueCollection: 0, collectionEfficiency: null, overduePercent: 0,
     bucket0to30: 0, bucket31to60: 0, bucket61to90: 0, bucket90plus: 0,

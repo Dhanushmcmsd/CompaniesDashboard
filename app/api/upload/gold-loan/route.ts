@@ -87,7 +87,7 @@ export async function POST(req: Request) {
             newCustomerFromLoanBalance: kpis.newCustomerFromLoanBalance,
             newDisbursements: kpis.newDisbursements,
             mtdDisbursements: kpis.mtdDisbursements,
-            ytdDisbursements: kpis.ytdDisbursements,
+            ytdDisbursements: kpis.calendarMonthDisbursements,
             gnpaAmount: kpis.gnpaAmount,
             gnpaPct: kpis.gnpaPct,
             nnpaPct: kpis.nnpaPct,
@@ -157,16 +157,15 @@ export async function POST(req: Request) {
             `branches=${txnKPIs.branchDisbursementFromTxn.length}`
           );
 
-          if (latestSnapshot) {
-            const totalOverdue = latestSnapshot.totalOverdue;
-            const newODCollection = txnKPIs.overdueCollectionFromTxn;
-            const newEfficiency =
-              totalOverdue > 0 ? (newODCollection / totalOverdue) * 100 : null;
-
             const { calculateTransactionKPIs: calcTxnKPIs } = await import(
               "@/lib/gold-loan/transaction-calculator"
             );
-            const fullTxnKPIs = calcTxnKPIs(parsed.rows, [], totalOverdue, parsed.reportDate ?? new Date());
+            const fullTxnKPIs = calcTxnKPIs(
+              parsed.rows,
+              [],
+              latestSnapshot?.totalOverdue ?? 0,
+              parsed.reportDate ?? new Date(),
+            );
 
             const branchDisbForSnapshot = fullTxnKPIs.branchDisbursements.map((b) => ({
               branch: b.branch,
@@ -175,40 +174,98 @@ export async function POST(req: Request) {
               ytd: b.ytd,
             }));
 
-            await prisma.$executeRawUnsafe(
-              `UPDATE gold_loan_snapshots
-               SET "overdueCollection" = $1,
-                   "collectionEfficiency" = $2,
-                   "branchDisbursement" = $3::jsonb,
-                   "newDisbursements" = $4,
-                   "mtdDisbursements" = $5,
-                   "ytdDisbursements" = $6,
-                   "newCustomerFromTxn" = $7
-               WHERE id = $8`,
-              newODCollection,
-              newEfficiency,
-              JSON.stringify(branchDisbForSnapshot),
-              fullTxnKPIs.ftdDisbursement,
-              fullTxnKPIs.mtdDisbursement,
-              fullTxnKPIs.ytdDisbursement,
-              txnKPIs.newCustomerFromTxn,
-              latestSnapshot.id,
-            );
+            if (latestSnapshot) {
+              const totalOverdue = latestSnapshot.totalOverdue;
+              const newODCollection = txnKPIs.overdueCollectionFromTxn;
+              const newEfficiency =
+                totalOverdue > 0 ? (newODCollection / totalOverdue) * 100 : null;
 
-            console.log(
-              `[upload] Patched snapshot ${latestSnapshot.id}:`,
-              `collectionEfficiency=${newEfficiency != null ? newEfficiency.toFixed(2) + '%' : 'null'}`,
-              `ftdDisb=${fullTxnKPIs.ftdDisbursement.toFixed(2)}`,
-              `mtdDisb=${fullTxnKPIs.mtdDisbursement.toFixed(2)}`,
-              `ytdDisb=${fullTxnKPIs.ytdDisbursement.toFixed(2)}`
-            );
-          } else {
-            perFileErrors.push(
-              "No balance-sheet snapshot found for this company. " +
-                "Upload the Loan Balance Statement first so overdue accounts can be " +
-                "cross-referenced. Transaction KPIs calculated in memory but NOT stored."
-            );
-          }
+              await prisma.$executeRawUnsafe(
+                `UPDATE gold_loan_snapshots
+                 SET "overdueCollection" = $1,
+                     "collectionEfficiency" = $2,
+                     "branchDisbursement" = $3::jsonb,
+                     "newDisbursements" = $4,
+                     "mtdDisbursements" = $5,
+                     "ytdDisbursements" = $6,
+                     "newCustomerFromTxn" = $7
+                 WHERE id = $8`,
+                newODCollection,
+                newEfficiency,
+                JSON.stringify(branchDisbForSnapshot),
+                fullTxnKPIs.ftdDisbursement,
+                fullTxnKPIs.mtdDisbursement,
+                fullTxnKPIs.calendarMonthDisbursement,
+                txnKPIs.newCustomerFromTxn,
+                latestSnapshot.id,
+              );
+
+              console.log(
+                `[upload] Patched snapshot ${latestSnapshot.id}:`,
+                `collectionEfficiency=${newEfficiency != null ? newEfficiency.toFixed(2) + '%' : 'null'}`,
+                `ftdDisb=${fullTxnKPIs.ftdDisbursement.toFixed(2)}`,
+                `mtdDisb=${fullTxnKPIs.mtdDisbursement.toFixed(2)}`,
+                `calendarMonthDisb=${fullTxnKPIs.calendarMonthDisbursement.toFixed(2)}`
+              );
+            } else {
+              await prisma.goldLoanSnapshot.create({
+                data: {
+                  uploadBatchId: batch.id,
+                  company: "supra",
+                  reportDate: parsed.reportDate,
+                  totalAUM: 0,
+                  totalAccounts: 0,
+                  totalCustomers: 0,
+                  avgTicketSize: 0,
+                  avgYield: 0,
+                  totalGoldWeight: 0,
+                  avgGoldWeightPerLoan: 0,
+                  avgLTV: 0,
+                  avgPresentRate: 0,
+                  avgGoldValuePerLoan: 0,
+                  avgRatePerGram: 0,
+                  highRiskAmount: 0,
+                  highRiskCount: 0,
+                  newCustomerFromLoanBalance: 0,
+                  newCustomerFromTxn: txnKPIs.newCustomerFromTxn,
+                  newDisbursements: fullTxnKPIs.ftdDisbursement,
+                  mtdDisbursements: fullTxnKPIs.mtdDisbursement,
+                  ytdDisbursements: fullTxnKPIs.calendarMonthDisbursement,
+                  gnpaAmount: 0,
+                  gnpaPct: 0,
+                  nnpaPct: 0,
+                  totalOverdue: 0,
+                  overdueCollection: fullTxnKPIs.overdueCollection,
+                  collectionEfficiency: null,
+                  overduePercent: 0,
+                  bucket0to30: 0,
+                  bucket31to60: 0,
+                  bucket61to90: 0,
+                  bucket90plus: 0,
+                  sma0Amount: 0,
+                  sma1Amount: 0,
+                  sma2Amount: 0,
+                  sma0Count: 0,
+                  sma1Count: 0,
+                  sma2Count: 0,
+                  branchAUM: [],
+                  productAUM: [],
+                  branchDisbursement: branchDisbForSnapshot,
+                  branchNPA: [],
+                  branchGoldWeight: [],
+                  highLTVAccounts: 0,
+                  goldValueMismatch: 0,
+                  auctionCases: 0,
+                  overdueAccountNumbers: [],
+                },
+              });
+
+              perFileErrors.push(
+                "No balance-sheet snapshot found for this company. " +
+                  "Balance sheet KPIs will be unavailable until the Loan Balance Statement is uploaded. " +
+                  "Disbursement data is saved from the transaction file only."
+              );
+            }
 
           await prisma.uploadBatch.update({
             where: { id: batch.id },

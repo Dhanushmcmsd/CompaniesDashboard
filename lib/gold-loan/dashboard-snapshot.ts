@@ -31,7 +31,6 @@ export type GoldLoanDashboardSnapshot = {
     newCustomerFromTxn: number | null;
     newDisbursements: number;
     mtdDisbursements: number;
-    ytdDisbursements: number;
   } | null;
   alerts: { type: string; severity: string; message: string; count: number }[];
   disbursementTrend: DisbursementTrendPoint[];
@@ -235,14 +234,12 @@ export function aggregateGoldLoanDashboard(
       newCustomerFromTxn: snap.newCustomerFromTxn ?? null,
       newDisbursements: snap.newDisbursements,
       mtdDisbursements: snap.mtdDisbursements,
-      ytdDisbursements: snap.ytdDisbursements,
     },
     alerts: buildAlerts(snap),
     disbursementTrend,
     branchDisbursement: (snap.branchDisbursement ?? []) as GoldLoanDashboardSnapshot["branchDisbursement"],
     disbVsCollection: {
       mtdDisbursements: snap.mtdDisbursements,
-      ytdDisbursements: snap.ytdDisbursements,
       overdueCollection: snap.overdueCollection,
       totalOverdue: snap.totalOverdue,
     },
