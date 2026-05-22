@@ -10,105 +10,164 @@ export type ParsedGoldLoanExcel = {
   rows: Record<string, unknown>[];
   rowCount: number;
   errors: string[];
-  /** Populated for balance-sheet files: account numbers where DPD > 0.
-   *  Used by the transaction-statement parser for overdue collection cross-reference. */
+  /** Populated for balance-sheet files: account numbers where DPD > 0. */
   overdueAccountNumbers: string[];
 };
 
 const KEYWORDS = ["account", "customer", "balance", "disburs", "principal", "interest", "gold", "dpd", "branch"];
 
-const FIELD_ALIASES: Record<string, string[]> = {
-  // KEY FIX: 'Account Num#' normalizes to 'account num number' (with space before 'number')
-  // Added 'account numnumber' as fallback for any old normalization behavior
+/** Shared optional fields — merged into each file-type map at parse time. */
+const SHARED_ALIASES: Record<string, string[]> = {
+  branchState: ["br state", "br. state"],
+  branchRegion: ["br region", "br. region"],
+  otherCharges: ["other charges", "other charges due"],
+  isClosed: ["closed", "loan closed", "is closed"],
+};
+
+/** FILE TYPE 1: Gold Loan Balance Statement (production headers). */
+const BALANCE_ALIASES: Record<string, string[]> = {
   loanAccountNumber: [
+    "account num#",
     "account num number",
     "account numnumber",
     "account number",
     "loan account number",
     "account num",
   ],
-  customerId: ["customer number", "customer id", "customer code", "cust id"],
+  customerId: ["customer id", "customer number", "customer code", "cust id"],
   customerName: ["customer name", "name"],
   branchName: ["branch name", "branch"],
-  disbursementDate: ["issue date", "disbursment date", "disbursement date", "disb date"],
-  disbursedAmount: ["issue amount", "disbursed amount", "disbursement amount", "principal debit", "loan amount"],
-  closingBalance: ["closing balance", "closing balance cr", "principal closing amount", "balance"],
+  branchCode: ["br. code", "br code", "branch code"],
+  schemeName: ["scheme name", "loan type", "product", "loan product"],
+  schemeCode: ["scheme code"],
+  inventoryNo: ["inventory no", "inventory number"],
+  disbursementDate: ["disbursment date", "disbursement date", "disb date"],
+  disbursedAmount: ["disbursed amount", "disbursement amount", "loan amount"],
+  closingBalance: ["closing balance", "closing balance cr", "principal closing amount"],
   openingBalance: ["opening balance"],
-  principalCr: ["principal credit", "principal cr", "principal received", "principal collection"],
-  principalDr: ["principal dr"],
-  interestRcvd: ["tot. intr. amount", "total interest amount", "intr. amount", "interest rcvd", "interest received", "interest collection"],
+  principalDr: ["principal dr.", "principal dr", "principal debit"],
+  principalCr: ["principal cr.", "principal cr", "principal credit", "principal received", "principal collection"],
+  interestRcvd: ["interest rcvd", "tot. intr. amount", "intr. amount"],
   interestRcvDuring: ["interest rcvd during"],
   interestRate: ["total interest rate", "interest rate", "yield"],
-  goldWeight: ["gold wt", "gold weight", "net gold weight"],
-  grossWt: ["gross wt", "gross weight"],
+  goldWeight: ["gold wt.", "gold wt", "gold weight", "net gold weight"],
+  grossWt: ["gross wt.", "gross wt", "gross weight"],
   goldPurity: ["purity", "gold purity"],
   presentRate: ["present rate", "rate per gram", "gold rate"],
   dpd: ["dpd", "days past due", "days overdue"],
-  schemeName: ["loan type", "scheme name", "product", "loan product"],
-  branchState: ["br state", "state"],
-  branchRegion: ["br region", "region"],
   totalOutstanding: ["total outstanding", "loan outstanding"],
   totalInterestDue: ["total interest due"],
   maturityDate: ["maturity date"],
   inventoryDate: ["inventory date"],
   loanPeriod: ["loan period"],
   loanPeriodType: ["loan period type"],
-  totalAmountReceived: ["amount received", "total amount received", "total amount", "collection amount"],
-  otherCharges: ["other charges", "other charges due"],
-  transactionDate: ["trandate", "tran date", "transaction date", "date"],
-  tranMode: ["tran mode", "transaction mode", "mode"],
-  isClosed: ["closed", "loan closed", "is closed"],
 };
 
-const EXTRA_ALIASES: Record<string, string[]> = {
-  schemeCode: ["scheme code"],
+/** FILE TYPE 2: Gold Loan Transaction Statement. */
+const TRANSACTION_ALIASES: Record<string, string[]> = {
+  loanAccountNumber: ["account number", "account num#", "account num number", "loan account number"],
+  customerId: ["customer number", "customer id", "customer code", "cust id"],
+  customerName: ["name", "customer name"],
+  branchName: ["branch name", "branch"],
   branchCode: ["br. code", "br code", "branch code"],
-  inventoryNo: ["inventory no", "inventory number"],
+  schemeName: ["loan type", "scheme name", "product", "loan product"],
+  inventoryNo: ["inventory number", "inventory no"],
+  disbursementDate: ["issue date"],
+  disbursedAmount: ["issue amount"],
+  principalDr: ["principal debit", "principal dr.", "principal dr"],
+  principalCr: ["principal credit", "principal cr.", "principal cr"],
+  interestRcvd: ["tot. intr. amount", "tot intr amount", "intr. amount", "total interest amount"],
+  interestRate: ["rate of interest", "interest rate"],
+  transactionDate: ["trandate", "tran date", "transaction date"],
+  tranMode: ["tran mode", "transaction mode", "mode"],
+  totalAmountReceived: [
+    "amount received",
+    "interest and other charges received",
+  ],
 };
+
+/** FILE TYPE 3: Gold Loan Interest Extract. */
+const INTEREST_EXTRACT_ALIASES: Record<string, string[]> = {
+  loanAccountNumber: ["account number", "account num#", "account num number"],
+  customerId: ["customer number", "customer id"],
+  customerName: ["name", "customer name"],
+  branchName: ["branch name", "branch"],
+  branchCode: ["br. code", "br code", "branch code"],
+  schemeName: ["loan type", "scheme name"],
+  inventoryNo: ["inventory number", "inventory no"],
+  disbursementDate: ["issue date"],
+  disbursedAmount: ["issue amount"],
+  principalCr: ["principal credit", "principal cr.", "principal cr"],
+  interestRcvd: ["tot. intr. amount", "intr. amount", "interest received upto", "last interest received upto"],
+  interestRate: ["rate of interest", "interest rate"],
+  transactionDate: ["trandate", "tran date"],
+  tranMode: ["tran mode"],
+  goldWeight: ["ornament weight", "gold wt.", "gold wt"],
+  goldPurity: ["purity"],
+};
+
+function mergeAliases(...maps: Record<string, string[]>[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const m of maps) {
+    for (const [k, v] of Object.entries(m)) {
+      out[k] = [...(out[k] ?? []), ...v];
+    }
+  }
+  return out;
+}
+
+export function getAliasesForFileType(fileType: ParsedFileType): Record<string, string[]> {
+  switch (fileType) {
+    case "balance":
+      return mergeAliases(BALANCE_ALIASES, SHARED_ALIASES);
+    case "transaction":
+      return mergeAliases(TRANSACTION_ALIASES, SHARED_ALIASES);
+    case "interest-extract":
+      return mergeAliases(INTEREST_EXTRACT_ALIASES, SHARED_ALIASES);
+    default:
+      return mergeAliases(BALANCE_ALIASES, TRANSACTION_ALIASES, SHARED_ALIASES);
+  }
+}
 
 /**
  * Normalize a raw Excel header cell value to a stable lowercase string.
- *
- * Normalization pipeline (in order):
- *  1. Lowercase
- *  2. Collapse \r\n and \n to a single space  → multi-line headers become one line
- *  3. Replace '#' with ' number '             → 'Account Num#' → 'account num number'
- *  4. Strip all remaining non-alphanumeric chars (., /, -, etc.) → spaces
- *     NOTE: dots and slashes in 'Tot. Intr. Amount' and 'Br. Code' become spaces,
- *     then collapse step removes doubles — they still fuzzy-match via findColumn.
- *  5. Collapse multiple spaces to one
- *  6. Trim
- *
- * Verified mappings (Step 6 test cases):
- *   'TranDate'          → 'trandate'          ✓ matches alias 'trandate'
- *   'Tran Date'         → 'tran date'         ✓ matches alias 'tran date'
- *   'Transaction Date'  → 'transaction date'  ✓ matches alias 'transaction date'
- *   'Tot. Intr. Amount' → 'tot intr amount'   ✓ fuzzy-matches alias 'tot intr amount'
- *   'Account Num#'      → 'account num number'✓ matches alias 'account num number'
- *   'Br. Code'          → 'br code'           ✓ matches alias 'br code'
- *   'Amount Received'   → 'amount received'   ✓ matches alias 'amount received'
- *   'Principal Credit'  → 'principal credit'  ✓ matches alias 'principal credit'
- *   'Issue Date'        → 'issue date'        ✓ matches alias 'issue date'
  */
 export function normalizeHeader(value: unknown): string {
   return String(value ?? "")
     .toLowerCase()
-    .replace(/\r?\n/g, " ")           // step 2: flatten multi-line headers
-    .replace(/#/g, " number ")         // step 3: 'Num#' -> 'num number'
-    .replace(/[^a-z0-9\s]/g, " ")     // step 4: strip dots, slashes, hyphens etc.
-    .replace(/\s+/g, " ")             // step 5: collapse whitespace
-    .trim();                           // step 6
+    .replace(/\r?\n/g, " ")
+    .replace(/#/g, " number ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
- * Find the best header row in the first 5 rows of the worksheet.
- *
- * Strategy: score each row by (nonEmptyCells + keywordHits * 3).
- * A title row like "Transactions During Period From 01-04-2026 To 09-05-2026"
- * scores 0 keyword hits so it is always skipped in favour of the real header row.
- *
- * Minimum bar: at least 2 keyword hits required before a row is considered.
+ * Production files: title row at index 0, column headers at index 1 (skipRows = 1).
  */
+export function detectHeaderRowIndex(matrix: unknown[][]): number {
+  const row0Text = (matrix[0] ?? []).map((c) => String(c ?? "")).join(" ").toLowerCase();
+
+  if (/balance statement between/i.test(row0Text)) return 1;
+  if (/transactions during period/i.test(row0Text)) return 1;
+  if (/interest extract between/i.test(row0Text)) return 1;
+  if (/\bgroup\b/i.test(row0Text) && /loan|balance|transaction|closed/i.test(row0Text)) return 1;
+
+  const row0Norm = normalizeHeader(matrix[0]?.[0]);
+  const row1Norm = normalizeHeader(matrix[1]?.[0]);
+  if (row0Norm.length < 3 && row1Norm === "branch name") return 1;
+
+  return findBestHeaderRow(matrix);
+}
+
+function detectFileTypeFromTitle(titleRows: string[]): ParsedFileType | null {
+  const title = titleRows.join(" ").toLowerCase();
+  if (/balance statement between/i.test(title)) return "balance";
+  if (/transactions during period/i.test(title)) return "transaction";
+  if (/interest extract between/i.test(title)) return "interest-extract";
+  return null;
+}
+
 function findBestHeaderRow(rows: unknown[][]): number {
   let bestIndex = 0;
   let bestScore = -1;
@@ -133,13 +192,11 @@ function fuzzyMatch(header: string, alias: string): boolean {
 }
 
 export function findColumn(headers: string[], aliases: string[]): string | null {
-  // exact match first
   for (const alias of aliases) {
     const normAlias = normalizeHeader(alias);
     const exact = headers.find((h) => h === normAlias);
     if (exact) return exact;
   }
-  // fuzzy match fallback
   for (const alias of aliases) {
     const normAlias = normalizeHeader(alias);
     const fuzzy = headers.find((h) => fuzzyMatch(h, normAlias));
@@ -148,17 +205,95 @@ export function findColumn(headers: string[], aliases: string[]): string | null 
   return null;
 }
 
+/** All distinct header keys matching any alias (Thane txn has two collection columns). */
+export function findAllColumns(headers: string[], aliases: string[]): string[] {
+  const keys: string[] = [];
+  for (const alias of aliases) {
+    const normAlias = normalizeHeader(alias);
+    const exact = headers.find((h) => h === normAlias);
+    if (exact && !keys.includes(exact)) keys.push(exact);
+  }
+  for (const alias of aliases) {
+    const normAlias = normalizeHeader(alias);
+    const fuzzy = headers.find((h) => fuzzyMatch(h, normAlias) && !keys.includes(h));
+    if (fuzzy) keys.push(fuzzy);
+  }
+  return keys;
+}
+
+function sumNumericFields(
+  objByHeader: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  if (!keys.length) return null;
+  let sum = 0;
+  let any = false;
+  for (const key of keys) {
+    const n = parseNumber(objByHeader[key]);
+    if (n != null) {
+      sum += n;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+function buildColumnMap(headers: string[], aliases: Record<string, string[]>): Record<string, string | null> {
+  const col: Record<string, string | null> = {};
+  for (const [field, fieldAliases] of Object.entries(aliases)) {
+    col[field] = findColumn(headers, fieldAliases);
+  }
+  return col;
+}
+
+function scoreFileType(headers: string[], fileType: ParsedFileType): number {
+  const col = buildColumnMap(headers, getAliasesForFileType(fileType));
+  let score = 0;
+
+  if (col.loanAccountNumber) score += 2;
+
+  if (fileType === "balance") {
+    if (col.closingBalance) score += 3;
+    if (col.openingBalance) score += 1;
+    if (col.dpd) score += 1;
+    if (col.goldWeight) score += 1;
+  } else if (fileType === "transaction") {
+    if (col.transactionDate) score += 3;
+    if (col.totalAmountReceived) score += 2;
+    if (col.tranMode) score += 1;
+    if (col.disbursedAmount) score += 1;
+  } else if (fileType === "interest-extract") {
+    if (col.interestRcvd) score += 2;
+    if (col.transactionDate) score += 1;
+    if (col.principalCr) score += 1;
+  }
+
+  return score;
+}
+
+function detectFileType(headers: string[], titleHint: ParsedFileType | null): ParsedFileType {
+  const candidates: ParsedFileType[] = ["balance", "transaction", "interest-extract"];
+  const scores = candidates.map((t) => ({ t, s: scoreFileType(headers, t) }));
+  scores.sort((a, b) => b.s - a.s);
+
+  if (titleHint && scores.some((x) => x.t === titleHint && x.s >= 3)) {
+    return titleHint;
+  }
+
+  const best = scores[0];
+  if (best && best.s >= 3) return best.t;
+  return "unknown";
+}
+
 function parseDate(value: unknown): Date | null {
   if (value == null || value === "") return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
   const raw = String(value).trim();
-  // DD-MM-YYYY
   const m = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
   if (m) {
     const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
     return Number.isNaN(d.getTime()) ? null : d;
   }
-  // ISO and any other standard format
   const iso = new Date(raw);
   return Number.isNaN(iso.getTime()) ? null : iso;
 }
@@ -173,7 +308,6 @@ function parseReportDate(rawTitleRows: string[]): Date | null {
   const title = rawTitleRows.join(" ");
   const between = title.match(/Between (\d{2}-\d{2}-\d{4}) and (\d{2}-\d{2}-\d{4})/i);
   if (between) return parseDate(between[2]);
-  // Transaction file title: "Transactions During Period From 01-04-2026 To 09-05-2026"
   const fromTo = title.match(/From (\d{2}-\d{2}-\d{4}) To (\d{2}-\d{2}-\d{4})/i);
   if (fromTo) return parseDate(fromTo[2]);
   const asOn = title.match(/As on (\d{2}-\d{2}-\d{4})/i);
@@ -206,47 +340,31 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     };
   }
 
-  const headerRowIndex = findBestHeaderRow(matrix);
+  const headerRowIndex = detectHeaderRowIndex(matrix);
   const titleRows = matrix.slice(0, headerRowIndex).map((r) => (r ?? []).join(" "));
   const reportDate = parseReportDate(titleRows);
+  const titleHint = detectFileTypeFromTitle(titleRows);
 
   const originalHeaders = (matrix[headerRowIndex] ?? []).map((c) => String(c ?? "").trim());
   const headers = originalHeaders.map(normalizeHeader);
 
-  const col: Record<string, string | null> = {};
-  for (const [field, aliases] of Object.entries({ ...FIELD_ALIASES, ...EXTRA_ALIASES })) {
-    col[field] = findColumn(headers, aliases);
-  }
-
-  // --- File type detection ---
-  const hasAccount    = Boolean(col.loanAccountNumber);
-  const hasClosing    = Boolean(col.closingBalance);
-  const hasTxnDate    = Boolean(col.transactionDate);
-  const hasTotalAmt   = Boolean(col.totalAmountReceived);
-  const hasPrincipalCr = Boolean(col.principalCr);
-  const hasInterest   = Boolean(col.interestRcvd);
-  const hasDisbursedAmt = Boolean(col.disbursedAmount);
-
-  let fileType: ParsedFileType = "unknown";
-  if (hasAccount && hasClosing) {
-    fileType = "balance";
-  } else if (hasAccount && hasTxnDate && (hasTotalAmt || hasDisbursedAmt)) {
-    // Transaction statement: has TranDate + Amount Received (or Principal Debit for disbursements)
-    fileType = "transaction";
-  } else if (hasAccount && (hasPrincipalCr || hasTotalAmt) && hasInterest) {
-    fileType = "interest-extract";
-  }
+  let fileType = detectFileType(headers, titleHint);
+  const fieldAliases = getAliasesForFileType(fileType);
+  const col = buildColumnMap(headers, fieldAliases);
+  const collectionCols =
+    fileType === "transaction"
+      ? findAllColumns(headers, TRANSACTION_ALIASES.totalAmountReceived ?? [])
+      : [];
 
   if (fileType === "unknown") {
     const seen = headers.filter(Boolean).slice(0, 25).join(", ");
     errors.push(
       `Cannot detect file type for "${filename ?? "file"}". ` +
-      `Recognized columns: ${seen}. ` +
-      `Expected: 'Account Num#' + 'Closing Balance' (balance), or 'TranDate'/'Transaction Date' + 'Amount Received' (transaction), or principal/interest columns (interest-extract).`
+        `Recognized columns: ${seen}. ` +
+        `Expected: 'Account Num#' + 'Closing Balance' (balance), or 'TranDate' + 'Amount Received' (transaction), or interest columns (interest-extract).`,
     );
   }
 
-  // --- Row parsing ---
   const rows: Record<string, unknown>[] = [];
 
   for (let i = headerRowIndex + 1; i < matrix.length; i++) {
@@ -266,55 +384,54 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     const out: Record<string, unknown> = {};
 
     out.loanAccountNumber = toStringOrNull(read("loanAccountNumber"));
-    out.customerId        = toStringOrNull(read("customerId"));
-    out.customerName      = toStringOrNull(read("customerName"));
-    out.branchName        = toStringOrNull(read("branchName"));
-    out.branchState       = toStringOrNull(read("branchState"));
-    out.branchRegion      = toStringOrNull(read("branchRegion"));
-    out.schemeName        = toStringOrNull(read("schemeName"));
-    out.schemeCode        = toStringOrNull(read("schemeCode"));
-    out.branchCode        = toStringOrNull(read("branchCode"));
-    out.inventoryNo       = toStringOrNull(read("inventoryNo"));
-    out.tranMode          = toStringOrNull(read("tranMode"));
-    out.isClosed          = toStringOrNull(read("isClosed"));
+    out.customerId = toStringOrNull(read("customerId"));
+    out.customerName = toStringOrNull(read("customerName"));
+    out.branchName = toStringOrNull(read("branchName"));
+    out.branchState = toStringOrNull(read("branchState"));
+    out.branchRegion = toStringOrNull(read("branchRegion"));
+    out.schemeName = toStringOrNull(read("schemeName"));
+    out.schemeCode = toStringOrNull(read("schemeCode"));
+    out.branchCode = toStringOrNull(read("branchCode"));
+    out.inventoryNo = toStringOrNull(read("inventoryNo"));
+    out.tranMode = toStringOrNull(read("tranMode"));
+    out.isClosed = toStringOrNull(read("isClosed"));
 
-    out.disbursementDate  = parseDate(read("disbursementDate"));
-    out.transactionDate   = parseDate(read("transactionDate"));
-    out.maturityDate      = parseDate(read("maturityDate"));
-    out.inventoryDate     = parseDate(read("inventoryDate"));
+    out.disbursementDate = parseDate(read("disbursementDate"));
+    out.transactionDate = parseDate(read("transactionDate"));
+    out.maturityDate = parseDate(read("maturityDate"));
+    out.inventoryDate = parseDate(read("inventoryDate"));
 
-    out.disbursedAmount   = parseNumber(read("disbursedAmount"));
-    out.openingBalance    = parseNumber(read("openingBalance"));
-    out.closingBalance    = parseNumber(read("closingBalance"));
-    out.principalCr       = parseNumber(read("principalCr"));
-    out.principalDr       = parseNumber(read("principalDr"));
-    out.interestRcvd      = parseNumber(read("interestRcvd"));
+    out.disbursedAmount = parseNumber(read("disbursedAmount"));
+    out.openingBalance = parseNumber(read("openingBalance"));
+    out.closingBalance = parseNumber(read("closingBalance"));
+    out.principalCr = parseNumber(read("principalCr"));
+    out.principalDr = parseNumber(read("principalDr"));
+    out.interestRcvd = parseNumber(read("interestRcvd"));
     out.interestRcvDuring = parseNumber(read("interestRcvDuring"));
-    out.interestRate      = parseNumber(read("interestRate"));
-    out.goldWeight        = parseNumber(read("goldWeight"));
-    out.grossWt           = parseNumber(read("grossWt"));
-    out.goldPurity        = parseNumber(read("goldPurity"));
-    out.presentRate       = parseNumber(read("presentRate"));
-    out.dpd               = parseNumber(read("dpd"));
-    out.totalOutstanding  = parseNumber(read("totalOutstanding"));
-    out.totalInterestDue  = parseNumber(read("totalInterestDue"));
-    out.totalAmountReceived = parseNumber(read("totalAmountReceived"));
-    out.otherCharges      = parseNumber(read("otherCharges"));
-    out.loanPeriod        = parseNumber(read("loanPeriod"));
+    out.interestRate = parseNumber(read("interestRate"));
+    out.goldWeight = parseNumber(read("goldWeight"));
+    out.grossWt = parseNumber(read("grossWt"));
+    out.goldPurity = parseNumber(read("goldPurity"));
+    out.presentRate = parseNumber(read("presentRate"));
+    out.dpd = parseNumber(read("dpd"));
+    out.totalOutstanding = parseNumber(read("totalOutstanding"));
+    out.totalInterestDue = parseNumber(read("totalInterestDue"));
+    out.totalAmountReceived =
+      fileType === "transaction" && collectionCols.length
+        ? sumNumericFields(objByHeader, collectionCols)
+        : parseNumber(read("totalAmountReceived"));
+    out.otherCharges = parseNumber(read("otherCharges"));
+    out.loanPeriod = parseNumber(read("loanPeriod"));
 
-    // Derived: principal + interest received (useful for collection efficiency)
     const pRcvd = parseNumber(read("principalCr"));
     const iRcvd = parseNumber(read("interestRcvd"));
     out.principalReceived = pRcvd;
-    out.interestReceived  = iRcvd;
+    out.interestReceived = iRcvd;
     out.principalInterestReceived = (pRcvd ?? 0) + (iRcvd ?? 0);
 
     if (fileType !== "unknown") rows.push(out);
   }
 
-  // --- Overdue account numbers (balance sheet only) ---
-  // Extracted here so the caller can pass them directly to calculateKPIsFromTransaction()
-  // or store them in GoldLoanSnapshot.overdueAccountNumbers for later cross-reference.
   const overdueAccountNumbers: string[] =
     fileType === "balance"
       ? rows

@@ -32,6 +32,7 @@ export interface MfLoanKPIs {
 // ── Raw row parsed from the Balance Statement Excel ──────────────────────────
 export interface MfLoanBalanceRow {
   customerNumber: string;
+  loanAccountNumber: string;
   principalClosingBalance: number;
   rateOfInterest: number;
   disbursedAmount: number;
@@ -46,8 +47,11 @@ export interface MfLoanBalanceRow {
 export interface MfLoanTransactionRow {
   loanAccountNumber: string;
   transactionDate: Date | null;
-  principalDr: number;   // disbursement debit
-  totalReceived: number; // collection credit
+  principalDr: number;
+  principalCr: number;
+  totalReceived: number; // maps to production column "Total Rcvd"
+  interestRcvd: number;
+  tranMode: string;
   branch: string;
 }
 
