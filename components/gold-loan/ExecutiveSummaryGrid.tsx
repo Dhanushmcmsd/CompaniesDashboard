@@ -15,6 +15,7 @@ interface KPIData {
   avgLTV: number;
   totalGoldWeight: number;
   avgPresentRate: number;
+  avgRatePerGram: number;
   avgGoldValuePerLoan: number;
   totalAccounts: number;
   newDisbursements: number;
@@ -56,6 +57,10 @@ export default function ExecutiveSummaryGrid() {
     : period === 'MTD' ? fmtFull(data.mtdDisbursements)
     : period === 'YTD' ? fmtFull(data.ytdDisbursements)
     : fmtFull(data.newDisbursements);
+
+  const showTransactionOnlyWarning = Boolean(
+    data && data.totalAUM === 0 && (data.newDisbursements > 0 || data.mtdDisbursements > 0)
+  );
 
   const cards = [
     {
@@ -128,9 +133,9 @@ export default function ExecutiveSummaryGrid() {
       ],
     },
     {
-      label: 'Avg Rate / gram', value: fmt(data?.avgPresentRate, 0), unit: '\u20b9', color: 'blue' as const,
-      fullValue: `\u20b9 ${fmtFull(data?.avgPresentRate, 2)}`,
-      description: 'Average present market rate per gram of gold used for LTV calculation',
+      label: 'Implied Rate per Gram', value: fmt(data?.avgRatePerGram, 0), unit: '\u20b9', color: 'blue' as const,
+      fullValue: `\u20b9 ${fmtFull(data?.avgRatePerGram, 2)}`,
+      description: 'Average outstanding loan balance per gram of pledged gold (totalAUM ÷ totalGoldWeight). This is an implied rate, not the live market gold price.',
     },
     {
       label: 'Avg Gold Value / Loan', value: fmt(data?.avgGoldValuePerLoan), unit: '\u20b9 L', color: 'blue' as const,
@@ -155,10 +160,21 @@ export default function ExecutiveSummaryGrid() {
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      {cards.map((card) => (
-        <KPICard key={card.label} {...card} loading={loading} />
-      ))}
-    </div>
+    <>
+      {showTransactionOnlyWarning && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 mb-4">
+          <p className="font-semibold">⚠️ Balance sheet not yet uploaded</p>
+          <p className="text-sm mt-1">
+            LTV, GNPA, Collection Efficiency, and Overdue KPIs are unavailable. Disbursement figures are sourced from the transaction file only.
+          </p>
+        </div>
+      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {cards.map((card) => {
+          const cardProps = { ...card, loading };
+          return <KPICard key={card.label} {...cardProps} />;
+        })}
+      </div>
+    </>
   );
 }

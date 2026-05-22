@@ -369,13 +369,13 @@ export function calculateKPIs(
     .filter((r) => { const d = safe(r.dpd); return d >= 31 && d <= 60 })
     .reduce((s, r) => s + safe(r.closingBalance), 0)
   const bucket61to90 = rows
-    .filter((r) => { const d = safe(r.dpd); return d >= 61 && d <= 90 })
+    .filter((r) => { const d = safe(r.dpd); return d >= 61 && d <= 89 })
     .reduce((s, r) => s + safe(r.closingBalance), 0)
   const bucket90plus = gnpaAmount
 
   const sma0Count = rows.filter((r) => { const d = safe(r.dpd); return d >= 1 && d <= 30 }).length
   const sma1Count = rows.filter((r) => { const d = safe(r.dpd); return d >= 31 && d <= 60 }).length
-  const sma2Count = rows.filter((r) => { const d = safe(r.dpd); return d >= 61 && d <= 90 }).length
+  const sma2Count = rows.filter((r) => { const d = safe(r.dpd); return d >= 61 && d <= 89 }).length
   const sma0Amount = bucket0to30
   const sma1Amount = bucket31to60
   const sma2Amount = bucket61to90
