@@ -21,7 +21,8 @@ export function getDateRange(period: Period): DateRange {
     }
 
     case 'YTD': {
-      const from = new Date(today.getFullYear(), 0, 1);
+      const fyStartYear = today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
+      const from = new Date(fyStartYear, 3, 1);
       return { from, to: endOfToday };
     }
   }

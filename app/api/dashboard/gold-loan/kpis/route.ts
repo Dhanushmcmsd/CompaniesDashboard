@@ -32,12 +32,16 @@ export async function GET(req: Request) {
         avgLTV:               snap.avgLTV,
         totalGoldWeight:      snap.totalGoldWeight,
         avgPresentRate:       snap.avgPresentRate,
+        avgRatePerGram:       snap.avgRatePerGram,
         avgGoldValuePerLoan:  snap.avgGoldValuePerLoan,
+        highRiskAmount:       snap.highRiskAmount,
+        newCustomerFromLoanBalance: snap.newCustomerFromLoanBalance,
+        newCustomerFromTxn:   snap.newCustomerFromTxn,
         // Disbursements — sourced from Transaction Statement when uploaded,
         // otherwise from Issue Date in Loan Balance Statement.
         newDisbursements:     snap.newDisbursements,   // FTD
-        mtdDisbursements:     snap.mtdDisbursements,   // current calendar month
-        ytdDisbursements:     snap.ytdDisbursements,   // current financial year
+        mtdDisbursements:     snap.mtdDisbursements,   // current financial year to date (Apr 1 to today)
+        ytdDisbursements:     snap.ytdDisbursements,   // placeholder for calendar-month or future use
       },
     });
   } catch (e) {

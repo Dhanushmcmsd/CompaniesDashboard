@@ -41,7 +41,7 @@ export async function GET() {
         count:    snap.auctionCases,
       });
     }
-    if (snap.collectionEfficiency < 80) {
+    if (snap.collectionEfficiency != null && snap.collectionEfficiency < 80) {
       alerts.push({
         type:     "low-collection",
         severity: "medium",

@@ -68,8 +68,8 @@ export type TransactionKPISnapshot = {
 
   // ── Disbursements ──────────────────────────────────────────────────────
   ftdDisbursement: number;       // today
-  mtdDisbursement: number;       // month-to-date
-  ytdDisbursement: number;       // year-to-date
+  mtdDisbursement: number;       // financial year to date (Apr 1 to today)
+  calendarMonthDisbursement: number; // current calendar month
   disbursementCount: number;     // number of disbursement transactions
 
   // ── Breakdowns ────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ export type TransactionKPISnapshot = {
   totalTransactions: number;
   collectionTransactions: number;
   disbursementTransactions: number;
+  newCustomerFromTxn: number;
 };
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -98,30 +99,35 @@ function toDateKey(date: Date | null): string | null {
   return `${y}-${m}-${d}`;
 }
 
-function isToday(date: Date | null): boolean {
+function isToday(date: Date | null, asOnDate: Date): boolean {
   if (!date) return false;
-  const now = new Date();
   return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth()    === now.getMonth()    &&
-    date.getDate()     === now.getDate()
+    date.getFullYear() === asOnDate.getFullYear() &&
+    date.getMonth()    === asOnDate.getMonth()    &&
+    date.getDate()     === asOnDate.getDate()
   );
 }
 
-function isMTD(date: Date | null): boolean {
+function isMTD(date: Date | null, asOnDate: Date): boolean {
   if (!date) return false;
-  const now = new Date();
   return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth()    === now.getMonth()    &&
-    date.getDate()     <= now.getDate()
+    date.getFullYear() === asOnDate.getFullYear() &&
+    date.getMonth()    === asOnDate.getMonth()    &&
+    date.getDate()     <= asOnDate.getDate()
   );
 }
 
-function isYTD(date: Date | null): boolean {
+function getYtdStart(asOnDate: Date): Date {
+  const year = asOnDate.getFullYear();
+  const month = asOnDate.getMonth();
+  const fyStartYear = month < 3 ? year - 1 : year;
+  return new Date(fyStartYear, 3, 1);
+}
+
+function isYTD(date: Date | null, asOnDate: Date): boolean {
   if (!date) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date <= now;
+  const start = getYtdStart(asOnDate);
+  return date >= start && date <= asOnDate;
 }
 
 function isCollection(mode: TranMode): boolean {
@@ -147,6 +153,7 @@ export function calculateTransactionKPIs(
   txnRows: Record<string, unknown>[],
   balanceRows: Record<string, unknown>[] = [],
   totalOverdue = 0,
+  asOnDate: Date = new Date(),
 ): TransactionKPISnapshot {
   if (!txnRows.length) return emptyTransactionSnapshot();
 
@@ -237,8 +244,8 @@ export function calculateTransactionKPIs(
 
   // ── B. Disbursement KPIs ─────────────────────────────────────────────────
   let ftdDisbursement   = 0;
+  let calendarMonthDisbursement = 0;
   let mtdDisbursement   = 0;
-  let ytdDisbursement   = 0;
   const disbursementCount = disbursementRows.length;
 
   // Daily trend map
@@ -249,15 +256,21 @@ export function calculateTransactionKPIs(
     totalDisbursed: number; disbursementCount: number;
   }>();
 
+  const newCustomerAccounts = new Set<string>();
   for (const r of disbursementRows) {
     const date   = r.transactionDate instanceof Date ? r.transactionDate : null;
     // disbursedAmount maps to "Issue Amount" column; fall back to principalDr if missing
     const amt    = safe(r.disbursedAmount) || safe(r.principalDr);
     const branch = String(r.branchName ?? 'Unknown');
+    const isFtd = date != null && date.getFullYear() === asOnDate.getFullYear() && date.getMonth() === asOnDate.getMonth() && date.getDate() === asOnDate.getDate();
 
-    if (isToday(date)) ftdDisbursement += amt;
-    if (isMTD(date))   mtdDisbursement += amt;
-    if (isYTD(date))   ytdDisbursement += amt;
+    if (isFtd) {
+      ftdDisbursement += amt;
+      const account = String(r.loanAccountNumber ?? '').trim();
+      if (account) newCustomerAccounts.add(account);
+    }
+    if (isMTD(date, asOnDate))               calendarMonthDisbursement += amt;
+    if (isYTD(date, asOnDate))               mtdDisbursement += amt;
 
     // Daily trend
     const dateKey = toDateKey(date);
@@ -274,9 +287,9 @@ export function calculateTransactionKPIs(
       ftd: 0, mtd: 0, ytd: 0, totalDisbursed: 0, disbursementCount: 0,
     };
     branchDisbMap.set(branch, {
-      ftd:               bd.ftd               + (isToday(date) ? amt : 0),
-      mtd:               bd.mtd               + (isMTD(date)   ? amt : 0),
-      ytd:               bd.ytd               + (isYTD(date)   ? amt : 0),
+      ftd:               bd.ftd               + (isFtd ? amt : 0),
+      mtd:               bd.mtd               + (isMTD(date, asOnDate) ? amt : 0),
+      ytd:               bd.ytd               + (isYTD(date, asOnDate) ? amt : 0),
       totalDisbursed:    bd.totalDisbursed    + amt,
       disbursementCount: bd.disbursementCount + 1,
     });
@@ -299,7 +312,7 @@ export function calculateTransactionKPIs(
     collection,
     ftdDisbursement,
     mtdDisbursement,
-    ytdDisbursement,
+    calendarMonthDisbursement,
     disbursementCount,
     dailyDisbursements,
     branchDisbursements,
@@ -307,6 +320,7 @@ export function calculateTransactionKPIs(
     totalTransactions:        txnRows.length,
     collectionTransactions:   collectionRows.length,
     disbursementTransactions: disbursementRows.length,
+    newCustomerFromTxn:       newCustomerAccounts.size,
   };
 }
 
@@ -315,8 +329,9 @@ function emptyTransactionSnapshot(): TransactionKPISnapshot {
     principalCollected: 0, interestCollected: 0, totalCollected: 0,
     overdueCollection: 0, collectionEfficiencyTxn: 0,
     collection: { principalReceived: 0, interestReceived: 0, otherCharges: 0, totalCollected: 0 },
-    ftdDisbursement: 0, mtdDisbursement: 0, ytdDisbursement: 0, disbursementCount: 0,
+    ftdDisbursement: 0, mtdDisbursement: 0, calendarMonthDisbursement: 0, disbursementCount: 0,
     dailyDisbursements: [], branchDisbursements: [], branchCollections: [],
     totalTransactions: 0, collectionTransactions: 0, disbursementTransactions: 0,
+    newCustomerFromTxn: 0,
   };
 }
