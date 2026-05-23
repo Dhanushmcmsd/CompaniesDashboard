@@ -19,6 +19,7 @@ import {
   calculateMfBranchBreakdown,
 } from '@/lib/mf-loan/calculator';
 import type { MfLoanBalanceRow, MfLoanTransactionRow } from '@/lib/mf-loan/types';
+import { buildUploadErrors } from '@/lib/upload-errors';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 120;
@@ -88,18 +89,44 @@ export async function POST(req: NextRequest) {
 
       const isError = detection.confidence === 'none' || errors.some((e) => !e.startsWith('Optional'));
 
-      const batch = await prisma.uploadBatch.create({
-        data: {
-          company:      'supra',
-          portfolio:    'mf-loan',
-          fileType:     detection.fileType,
-          originalName: file.name,
-          uploadedBy:   session.user.email ?? 'unknown',
-          rowCount,
-          status:       isError ? 'error' : 'done',
-          errors:       errors.length ? errors : [],
-        },
-      });
+      const parseMeta = {
+        matchedColumns: detection.matchedColumns,
+        missingColumns: detection.missingColumns,
+        confidence:     detection.confidence,
+        detectedVia:    detection.detectedVia,
+      };
+      const errorsJson = buildUploadErrors(errors, parseMeta);
+
+      let batch;
+      try {
+        batch = await prisma.uploadBatch.create({
+          data: {
+            company:      'supra',
+            portfolio:    'mf-loan',
+            fileType:     detection.fileType,
+            originalName: file.name,
+            uploadedBy:   session.user.email ?? 'unknown',
+            rowCount,
+            status:       isError ? 'error' : 'done',
+            errors:       errorsJson,
+            parseMeta,
+          },
+        });
+      } catch (e) {
+        if (!String((e as Error).message).includes('parseMeta')) throw e;
+        batch = await prisma.uploadBatch.create({
+          data: {
+            company:      'supra',
+            portfolio:    'mf-loan',
+            fileType:     detection.fileType,
+            originalName: file.name,
+            uploadedBy:   session.user.email ?? 'unknown',
+            rowCount,
+            status:       isError ? 'error' : 'done',
+            errors:       errorsJson,
+          },
+        });
+      }
 
       if (detection.fileType === 'Balance Statement' && !isError) {
         balanceBatchId = batch.id;

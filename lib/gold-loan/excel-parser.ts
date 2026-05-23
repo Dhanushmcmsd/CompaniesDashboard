@@ -164,22 +164,93 @@ export function normalizeHeader(value: unknown): string {
     .trim();
 }
 
+function scoreHeaderRow(row: unknown[] | undefined): number {
+  if (!row?.length) return 0;
+  const cells = row.map(normalizeHeader).filter(Boolean);
+  const hits = KEYWORDS.reduce((acc, kw) => (cells.some((c) => c.includes(kw)) ? acc + 1 : acc), 0);
+  const hasAccount = cells.some((c) => c.includes("account"));
+  const hasClosing = cells.some((c) => c.includes("closing") || c.includes("outstanding"));
+  const hasTranDate = cells.some((c) => c.includes("trandate") || c === "tran date");
+  return cells.length + hits * 3 + (hasAccount ? 6 : 0) + (hasClosing ? 5 : 0) + (hasTranDate ? 6 : 0);
+}
+
 /**
- * Production files: title row at index 0, column headers at index 1 (skipRows = 1).
+ * Pick the row that looks most like column headers (may be row 1, 2, or 3).
  */
 export function detectHeaderRowIndex(matrix: unknown[][]): number {
   const row0Text = (matrix[0] ?? []).map((c) => String(c ?? "")).join(" ").toLowerCase();
+  const titleLikely =
+    /balance statement between/i.test(row0Text) ||
+    /transactions during period/i.test(row0Text) ||
+    /interest extract between/i.test(row0Text) ||
+    (/\bgroup\b/i.test(row0Text) && /loan|balance|transaction|closed/i.test(row0Text));
 
-  if (/balance statement between/i.test(row0Text)) return 1;
-  if (/transactions during period/i.test(row0Text)) return 1;
-  if (/interest extract between/i.test(row0Text)) return 1;
-  if (/\bgroup\b/i.test(row0Text) && /loan|balance|transaction|closed/i.test(row0Text)) return 1;
+  if (titleLikely) {
+    const scanEnd = Math.min(6, matrix.length);
+    let best = 1;
+    let bestScore = -1;
+    for (let i = 1; i < scanEnd; i++) {
+      const s = scoreHeaderRow(matrix[i]);
+      if (s > bestScore) {
+        bestScore = s;
+        best = i;
+      }
+    }
+    if (bestScore >= 8) return best;
+    return 1;
+  }
 
   const row0Norm = normalizeHeader(matrix[0]?.[0]);
   const row1Norm = normalizeHeader(matrix[1]?.[0]);
   if (row0Norm.length < 3 && row1Norm === "branch name") return 1;
 
   return findBestHeaderRow(matrix);
+}
+
+/**
+ * Sheets sometimes leave column A blank; headers start in column B or C.
+ */
+export function trimLeadingEmptyColumns(matrix: unknown[][], headerRowIndex: number): unknown[][] {
+  const headerRow = matrix[headerRowIndex] ?? [];
+  let startCol = 0;
+  for (let c = 0; c < headerRow.length; c++) {
+    if (String(headerRow[c] ?? "").trim()) {
+      startCol = c;
+      break;
+    }
+  }
+  if (startCol === 0) return matrix;
+  return matrix.map((row) => (row ?? []).slice(startCol));
+}
+
+function isRowEffectivelyEmpty(arr: unknown[]): boolean {
+  return !arr.some((v) => v != null && String(v).trim() !== "");
+}
+
+/** Grand-total / footer row: amounts present but no loan account. */
+function isSummaryFooterRow(
+  out: Record<string, unknown>,
+  fileType: ParsedFileType,
+  originalHeaders: string[],
+): boolean {
+  if (toStringOrNull(out.loanAccountNumber)) return false;
+
+  const label = originalHeaders
+    .slice(0, 6)
+    .map((h) => String(h ?? "").toLowerCase())
+    .join(" ");
+  if (/\b(total|grand|summary|subtotal)\b/.test(label)) return true;
+
+  if (fileType === "balance") {
+    const hasTotals =
+      out.closingBalance != null ||
+      out.openingBalance != null ||
+      out.disbursedAmount != null ||
+      out.totalOutstanding != null;
+    if (hasTotals) return true;
+  }
+
+  return false;
 }
 
 function detectFileTypeFromTitle(titleRows: string[]): ParsedFileType | null {
@@ -266,6 +337,89 @@ function buildColumnMap(headers: string[], aliases: Record<string, string[]>): R
     col[field] = findColumn(headers, fieldAliases);
   }
   return col;
+}
+
+/** Human-readable labels for column audit UI */
+export const GOLD_LOAN_FIELD_LABELS: Record<string, string> = {
+  loanAccountNumber: "Loan Account Number",
+  closingBalance: "Closing Balance / Outstanding",
+  openingBalance: "Opening Balance",
+  goldWeight: "Gold Weight",
+  presentRate: "Present Rate / Rate per Gram",
+  dpd: "DPD (Days Past Due)",
+  disbursementDate: "Disbursement Date",
+  disbursedAmount: "Disbursed Amount",
+  interestRate: "Interest Rate",
+  principalCr: "Principal Credit / Collection",
+  principalDr: "Principal Debit",
+  transactionDate: "Transaction Date",
+  totalAmountReceived: "Amount Received",
+  tranMode: "Transaction Mode",
+  customerName: "Customer Name",
+  branchName: "Branch Name",
+};
+
+const BALANCE_REQUIRED = ["loanAccountNumber", "closingBalance"] as const;
+const BALANCE_OPTIONAL_KPI = [
+  "goldWeight",
+  "presentRate",
+  "dpd",
+  "openingBalance",
+  "disbursementDate",
+  "disbursedAmount",
+  "interestRate",
+  "principalCr",
+  "branchName",
+] as const;
+
+const TRANSACTION_REQUIRED = ["loanAccountNumber", "transactionDate"] as const;
+const TRANSACTION_OPTIONAL_KPI = [
+  "totalAmountReceived",
+  "principalCr",
+  "principalDr",
+  "disbursedAmount",
+  "tranMode",
+  "branchName",
+] as const;
+
+export type GoldLoanColumnAudit = {
+  matchedColumns: string[];
+  missingColumns: string[];
+  missingRequired: string[];
+};
+
+function labelField(field: string): string {
+  return GOLD_LOAN_FIELD_LABELS[field] ?? field;
+}
+
+function auditFields(
+  headers: string[],
+  aliases: Record<string, string[]>,
+  required: readonly string[],
+  optional: readonly string[],
+): GoldLoanColumnAudit {
+  const col = buildColumnMap(headers, aliases);
+  const matched: string[] = [];
+  const missing: string[] = [];
+  const missingRequired: string[] = [];
+
+  for (const field of [...required, ...optional]) {
+    if (col[field]) matched.push(labelField(field));
+    else if ((required as readonly string[]).includes(field)) missingRequired.push(labelField(field));
+    else missing.push(labelField(field));
+  }
+
+  return { matchedColumns: matched, missingColumns: missing, missingRequired };
+}
+
+export function auditGoldLoanColumns(fileType: ParsedFileType, headers: string[]): GoldLoanColumnAudit {
+  if (fileType === "balance") {
+    return auditFields(headers, getAliasesForFileType("balance"), BALANCE_REQUIRED, BALANCE_OPTIONAL_KPI);
+  }
+  if (fileType === "transaction") {
+    return auditFields(headers, getAliasesForFileType("transaction"), TRANSACTION_REQUIRED, TRANSACTION_OPTIONAL_KPI);
+  }
+  return { matchedColumns: [], missingColumns: [], missingRequired: [] };
 }
 
 function scoreFileType(headers: string[], fileType: ParsedFileType): number {
@@ -365,12 +519,21 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
   }
 
   const headerRowIndex = detectHeaderRowIndex(matrix);
-  const titleRows = matrix.slice(0, headerRowIndex).map((r) => (r ?? []).join(" "));
+  const trimmedMatrix = trimLeadingEmptyColumns(matrix, headerRowIndex);
+  const titleRows = trimmedMatrix.slice(0, headerRowIndex).map((r) => (r ?? []).join(" "));
   const reportDate = parseReportDate(titleRows);
   const titleHint = detectFileTypeFromTitle(titleRows);
 
-  const originalHeaders = (matrix[headerRowIndex] ?? []).map((c) => String(c ?? "").trim());
-  const headers = originalHeaders.map(normalizeHeader);
+  const originalHeaders = (trimmedMatrix[headerRowIndex] ?? []).map((c) => String(c ?? "").trim());
+  const headers: string[] = [];
+  const headerColIndices: number[] = [];
+  originalHeaders.forEach((orig, idx) => {
+    const norm = normalizeHeader(orig);
+    if (norm) {
+      headers.push(norm);
+      headerColIndices.push(idx);
+    }
+  });
 
   let fileType = detectFileType(headers, titleHint);
   const fieldAliases = getAliasesForFileType(fileType);
@@ -411,13 +574,13 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     return null;
   }
 
-  for (let i = headerRowIndex + 1; i < matrix.length; i++) {
-    const arr = matrix[i] ?? [];
-    if (!arr.some((v) => v != null && String(v).trim() !== "")) continue;
+  for (let i = headerRowIndex + 1; i < trimmedMatrix.length; i++) {
+    const arr = trimmedMatrix[i] ?? [];
+    if (isRowEffectivelyEmpty(arr)) continue;
 
     const objByHeader: Record<string, unknown> = {};
-    headers.forEach((h, idx) => {
-      objByHeader[h] = arr[idx] ?? null;
+    headers.forEach((h, hi) => {
+      objByHeader[h] = arr[headerColIndices[hi]] ?? null;
     });
 
     const read = (field: string) => {
@@ -472,6 +635,10 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
     out.principalReceived = pRcvd;
     out.interestReceived = iRcvd;
     out.principalInterestReceived = (pRcvd ?? 0) + (iRcvd ?? 0);
+
+    if (fileType !== "unknown" && isSummaryFooterRow(out, fileType, originalHeaders)) {
+      continue;
+    }
 
     const validationIssue = fileType !== "unknown" ? rowValidationIssue(out, fileType) : null;
     if (validationIssue) {

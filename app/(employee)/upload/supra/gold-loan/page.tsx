@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import UploadAlertsPanel from "@/components/upload/UploadAlertsPanel";
+import { getParseMetaFromBatch } from "@/lib/upload-errors";
 
 type UploadResult = {
   fileName: string;
@@ -8,6 +10,9 @@ type UploadResult = {
   rowCount: number;
   status: string;
   errors: string[];
+  matchedColumns?: string[];
+  missingColumns?: string[];
+  missingRequired?: string[];
 };
 
 type HistoryItem = {
@@ -20,6 +25,11 @@ type HistoryItem = {
   uploadedBy: string;
   uploadedAt: string;
   errors: unknown;
+  parseMeta?: {
+    missingColumns?: string[];
+    missingRequired?: string[];
+    matchedColumns?: string[];
+  } | null;
 };
 
 type Stage = "idle" | "uploading" | "processing" | "done" | "error";
@@ -40,6 +50,7 @@ function formatBytes(bytes: number) {
 
 const STATUS_STYLES: Record<string, string> = {
   done:    "bg-green-100 text-green-800",
+  warning: "bg-amber-100 text-amber-800",
   error:   "bg-red-100 text-red-800",
   pending: "bg-yellow-100 text-yellow-800",
   noted:   "bg-blue-100 text-blue-800",
@@ -53,6 +64,7 @@ export default function GoldLoanUploadPage() {
   const [error, setError]           = useState<string | null>(null);
   const [results, setResults]       = useState<UploadResult[]>([]);
   const [history, setHistory]       = useState<HistoryItem[]>([]);
+  const [alertsRefresh, setAlertsRefresh] = useState(0);
   const xhrRef                      = useRef<XMLHttpRequest | null>(null);
   const slowTimerRef                = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -70,7 +82,7 @@ export default function GoldLoanUploadPage() {
 
   const uploadLabel = useMemo(
     () => `Upload & Process ${files.length} file${files.length !== 1 ? "s" : ""}`,
-    [files.length]
+    [files.length],
   );
 
   function resetTransientState() {
@@ -125,6 +137,7 @@ export default function GoldLoanUploadPage() {
           setStage("done");
           setFiles([]);
           await loadHistory();
+          setAlertsRefresh((k) => k + 1);
         } else {
           setStage("error");
           setError(data.error ?? "Upload failed");
@@ -142,138 +155,187 @@ export default function GoldLoanUploadPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      <header>
-        <h1 className="text-2xl font-bold text-[#0f172a]">Upload Portal — Supra Pacific Gold Loan</h1>
-        <p className="text-sm text-gray-500 mt-1">Upload one or more Excel statement files for processing</p>
-      </header>
+    <div className="p-6 flex gap-6 items-start max-w-6xl mx-auto">
+      <div className="flex-1 min-w-0 space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold text-[#0f172a]">Upload Portal — Supra Pacific Gold Loan</h1>
+          <p className="text-sm text-gray-500 mt-1">Upload one or more Excel statement files for processing</p>
+        </header>
 
-      {/* Upload area */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-        <label className="block border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 transition-colors">
-          <p className="text-gray-700 font-medium">Click to select .xlsx files</p>
-          <p className="text-xs text-gray-400 mt-1">Multiple files supported · Balance, Transaction, Interest Extract</p>
-          <input
-            type="file" multiple accept=".xlsx" className="hidden"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          />
-        </label>
-
-        {!!files.length && (
-          <ul className="space-y-2">
-            {files.map((f, i) => (
-              <li key={`${f.name}-${i}`} className="flex items-center justify-between border rounded-lg px-3 py-2 text-sm">
-                <div>
-                  <p className="font-medium text-gray-800">{f.name}</p>
-                  <p className="text-xs text-gray-400">{formatBytes(f.size)} · {detectTypeByFilename(f.name)}</p>
-                </div>
-                <button
-                  onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="text-red-500 hover:text-red-700 px-2 text-lg leading-none"
-                >×</button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex gap-2">
-          <button
-            disabled={!files.length || stage === "uploading" || stage === "processing"}
-            onClick={onUpload}
-            className="bg-[#0f172a] text-white rounded-xl px-4 py-2 text-sm disabled:opacity-50 hover:bg-slate-700 transition-colors"
-          >{uploadLabel}</button>
-          <button
-            disabled={stage !== "uploading" && stage !== "processing"}
-            onClick={abortUpload}
-            className="bg-gray-100 text-gray-700 rounded-xl px-4 py-2 text-sm disabled:opacity-50"
-          >Abort / Reset</button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-sm">
+            <p className="font-semibold text-amber-900 mb-2">Balance Statement (required columns)</p>
+            <ul className="text-amber-800 space-y-1 text-xs list-disc list-inside">
+              <li>Account Num# / Loan Account Number</li>
+              <li>Closing Balance / Outstanding</li>
+            </ul>
+            <p className="text-xs text-amber-700 mt-2">Optional: Gold Weight, Present Rate, DPD, Opening Balance</p>
+          </div>
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-sm">
+            <p className="font-semibold text-blue-900 mb-2">Transaction Statement</p>
+            <ul className="text-blue-800 space-y-1 text-xs list-disc list-inside">
+              <li>TranDate / Transaction Date</li>
+              <li>Account Number</li>
+              <li>Amount Received / Principal Credit</li>
+            </ul>
+          </div>
         </div>
 
-        {(stage === "uploading" || stage === "processing") && (
-          <div>
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {stage === "uploading" ? `Uploading… ${progress}%` : "Processing — calculating KPIs…"}
-            </p>
-            {slowNotice && (
-              <p className="text-xs text-amber-600 mt-1">
-                Still working — large file is being processed server-side.
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+          <label className="block border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 transition-colors">
+            <p className="text-gray-700 font-medium">Click to select .xlsx files</p>
+            <p className="text-xs text-gray-400 mt-1">Multiple files supported · Balance, Transaction, Interest Extract</p>
+            <input
+              type="file" multiple accept=".xlsx" className="hidden"
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            />
+          </label>
+
+          {!!files.length && (
+            <ul className="space-y-2">
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`} className="flex items-center justify-between border rounded-lg px-3 py-2 text-sm">
+                  <div>
+                    <p className="font-medium text-gray-800">{f.name}</p>
+                    <p className="text-xs text-gray-400">{formatBytes(f.size)} · {detectTypeByFilename(f.name)}</p>
+                  </div>
+                  <button
+                    onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                    className="text-red-500 hover:text-red-700 px-2 text-lg leading-none"
+                  >×</button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              disabled={!files.length || stage === "uploading" || stage === "processing"}
+              onClick={onUpload}
+              className="bg-[#0f172a] text-white rounded-xl px-4 py-2 text-sm disabled:opacity-50 hover:bg-slate-700 transition-colors"
+            >{uploadLabel}</button>
+            <button
+              disabled={stage !== "uploading" && stage !== "processing"}
+              onClick={abortUpload}
+              className="bg-gray-100 text-gray-700 rounded-xl px-4 py-2 text-sm disabled:opacity-50"
+            >Abort / Reset</button>
+          </div>
+
+          {(stage === "uploading" || stage === "processing") && (
+            <div>
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {stage === "uploading" ? `Uploading… ${progress}%` : "Processing — calculating KPIs…"}
               </p>
-            )}
-          </div>
-        )}
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        {!!results.length && (
-          <ul className="space-y-2">
-            {results.map((r, idx) => (
-              <li
-                key={idx}
-                className={`rounded-lg border p-3 text-sm ${
-                  r.status === "done" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
-                }`}
-              >
-                <p className="font-semibold text-gray-800">{r.fileName}</p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  Type: <strong>{r.fileType}</strong> · Rows parsed: <strong>{r.rowCount.toLocaleString("en-IN")}</strong> · Status: <strong>{r.status}</strong>
+              {slowNotice && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Still working — large file is being processed server-side.
                 </p>
-                {r.errors.length > 0 && (
-                  <ul className="mt-1 text-xs text-red-600 list-disc list-inside">
-                    {r.errors.slice(0, 3).map((e, i) => <li key={i}>{e}</li>)}
-                    {r.errors.length > 3 && <li>…and {r.errors.length - 3} more</li>}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              )}
+            </div>
+          )}
 
-      {/* Upload history */}
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-        <h2 className="font-semibold text-[#0f172a] mb-3">Recent Uploads</h2>
-        {history.length === 0 ? (
-          <p className="text-sm text-gray-400">No uploads yet.</p>
-        ) : (
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b text-gray-500 text-xs uppercase tracking-wide">
-                  <th className="py-2 pr-3">File</th>
-                  <th className="pr-3">Type</th>
-                  <th className="pr-3">Report Date</th>
-                  <th className="pr-3">Rows</th>
-                  <th className="pr-3">Status</th>
-                  <th className="pr-3">Uploaded By</th>
-                  <th>Uploaded At</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((h) => (
-                  <tr key={h.id} className="border-b hover:bg-gray-50">
-                    <td className="py-2 pr-3 font-medium text-gray-800 max-w-[180px] truncate">{h.originalName}</td>
-                    <td className="pr-3 text-gray-500">{h.fileType}</td>
-                    <td className="pr-3 text-gray-500">
-                      {h.reportDate ? new Date(h.reportDate).toLocaleDateString("en-IN") : "—"}
-                    </td>
-                    <td className="pr-3">{(h.rowCount ?? 0).toLocaleString("en-IN")}</td>
-                    <td className="pr-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        STATUS_STYLES[h.status] ?? "bg-gray-100 text-gray-600"
-                      }`}>{h.status}</span>
-                    </td>
-                    <td className="pr-3 text-gray-500">{h.uploadedBy}</td>
-                    <td className="text-gray-500">{new Date(h.uploadedAt).toLocaleString("en-IN")}</td>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          {!!results.length && (
+            <ul className="space-y-2">
+              {results.map((r, idx) => (
+                <li
+                  key={idx}
+                  className={`rounded-lg border p-3 text-sm ${
+                    r.status === "done"
+                      ? "border-green-200 bg-green-50"
+                      : r.status === "warning"
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-red-200 bg-red-50"
+                  }`}
+                >
+                  <p className="font-semibold text-gray-800">{r.fileName}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    Type: <strong>{r.fileType}</strong> · Rows parsed: <strong>{r.rowCount.toLocaleString("en-IN")}</strong> · Status: <strong>{r.status}</strong>
+                  </p>
+                  {(r.matchedColumns?.length ?? 0) > 0 && (
+                    <p className="text-xs text-green-700 mt-0.5">Matched: {r.matchedColumns!.join(", ")}</p>
+                  )}
+                  {(r.missingRequired?.length ?? 0) > 0 && (
+                    <p className="text-xs text-red-700 mt-0.5 font-medium">
+                      Required missing: {r.missingRequired!.join(", ")}
+                    </p>
+                  )}
+                  {(r.missingColumns?.length ?? 0) > 0 && (
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      Optional missing: {r.missingColumns!.join(", ")}
+                    </p>
+                  )}
+                  {r.errors.length > 0 && (
+                    <ul className="mt-1 text-xs text-red-600 list-disc list-inside">
+                      {r.errors.slice(0, 3).map((e, i) => <li key={i}>{e}</li>)}
+                      {r.errors.length > 3 && <li>…and {r.errors.length - 3} more</li>}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+          <h2 className="font-semibold text-[#0f172a] mb-3">Recent Uploads</h2>
+          {history.length === 0 ? (
+            <p className="text-sm text-gray-400">No uploads yet.</p>
+          ) : (
+            <div className="overflow-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b text-gray-500 text-xs uppercase tracking-wide">
+                    <th className="py-2 pr-3">File</th>
+                    <th className="pr-3">Type</th>
+                    <th className="pr-3">Report Date</th>
+                    <th className="pr-3">Rows</th>
+                    <th className="pr-3">Status</th>
+                    <th className="pr-3">Columns</th>
+                    <th className="pr-3">Uploaded By</th>
+                    <th>Uploaded At</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                </thead>
+                <tbody>
+                  {history.map((h) => {
+                    const meta = getParseMetaFromBatch(h);
+                    const missing = [
+                      ...(meta?.missingRequired ?? []),
+                      ...(meta?.missingColumns ?? []),
+                    ];
+                    return (
+                      <tr key={h.id} className="border-b hover:bg-gray-50">
+                        <td className="py-2 pr-3 font-medium text-gray-800 max-w-[160px] truncate">{h.originalName}</td>
+                        <td className="pr-3 text-gray-500">{h.fileType}</td>
+                        <td className="pr-3 text-gray-500">
+                          {h.reportDate ? new Date(h.reportDate).toLocaleDateString("en-IN") : "—"}
+                        </td>
+                        <td className="pr-3">{(h.rowCount ?? 0).toLocaleString("en-IN")}</td>
+                        <td className="pr-3">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            STATUS_STYLES[h.status] ?? "bg-gray-100 text-gray-600"
+                          }`}>{h.status}</span>
+                        </td>
+                        <td className="pr-3 text-xs text-amber-700 max-w-[140px]">
+                          {missing.length ? missing.slice(0, 2).join(", ") + (missing.length > 2 ? "…" : "") : "—"}
+                        </td>
+                        <td className="pr-3 text-gray-500">{h.uploadedBy}</td>
+                        <td className="text-gray-500">{new Date(h.uploadedAt).toLocaleString("en-IN")}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <UploadAlertsPanel portfolio="gold-loan" refreshKey={alertsRefresh} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import UploadLogsSection from "@/components/admin/UploadLogsSection";
 
 type RequestItem = {
   id: string;
@@ -150,8 +151,10 @@ export default function AdminPage() {
         )}
       </section>
 
+      <UploadLogsSection />
+
       <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
-        <h2 className="font-semibold text-[#0f172a] mb-2">Audit History</h2>
+        <h2 className="font-semibold text-[#0f172a] mb-2">Access Request Audit History</h2>
         <div className="space-y-2 text-sm">
           {approvedRows.map((r) => (
             <div key={r.id} className="border rounded-lg px-3 py-2 bg-green-50 border-green-200">

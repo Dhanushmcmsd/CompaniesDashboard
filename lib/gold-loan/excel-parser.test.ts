@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
+import fs from "fs";
+import path from "path";
 import {
+  detectHeaderRowIndex,
   findAllColumns,
   findColumn,
   getAliasesForFileType,
   normalizeHeader,
+  parseGoldLoanExcel,
+  trimLeadingEmptyColumns,
 } from "./excel-parser";
 
 const PRODUCTION_HEADERS = {
@@ -155,5 +160,35 @@ describe("findColumn — gold transaction Thane variant", () => {
     const cols = findAllColumns(headers, aliases.totalAmountReceived);
     expect(cols).toContain("amount received");
     expect(cols).toContain("interest and other charges received");
+  });
+});
+
+describe("trimLeadingEmptyColumns", () => {
+  it("aligns headers when column A is blank", () => {
+    const matrix = [
+      ["Title row"],
+      [null, "Scheme Code", "Account Num#", "Closing Balance"],
+      [null, "GL1", "00150111800002718", 1000],
+    ];
+    const headerIdx = detectHeaderRowIndex(matrix);
+    const trimmed = trimLeadingEmptyColumns(matrix, headerIdx);
+    const headers = (trimmed[headerIdx] ?? []).map(normalizeHeader);
+    const aliases = getAliasesForFileType("balance");
+    expect(findColumn(headers, aliases.loanAccountNumber)).toBe("account num number");
+    expect(findColumn(headers, aliases.closingBalance)).toBe("closing balance");
+  });
+});
+
+const THANE_FIXTURE = path.resolve("e:/VIDS/LoanBalanceStatement during the period Thane.xlsx");
+
+describe("parseGoldLoanExcel — Thane balance export", () => {
+  it("parses 530 data rows and skips grand-total footer", () => {
+    if (!fs.existsSync(THANE_FIXTURE)) return;
+    const buf = fs.readFileSync(THANE_FIXTURE);
+    const parsed = parseGoldLoanExcel(buf.buffer.slice(buf.byteOffset, buf.byteLength + buf.byteOffset), "Thane.xlsx");
+    expect(parsed.fileType).toBe("balance");
+    expect(parsed.rowCount).toBe(530);
+    expect(parsed.warnings.filter((w) => w.includes("missing loan account"))).toHaveLength(0);
+    expect(parsed.rows[0]?.loanAccountNumber).toBeTruthy();
   });
 });

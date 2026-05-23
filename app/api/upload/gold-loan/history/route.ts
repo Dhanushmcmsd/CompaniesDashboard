@@ -24,6 +24,7 @@ export async function GET() {
         uploadedBy:  true,
         uploadedAt:  true,
         errors:      true,
+        parseMeta:   true,
       },
     });
 

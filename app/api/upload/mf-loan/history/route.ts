@@ -23,6 +23,7 @@ export async function GET() {
       uploadedBy:   true,
       uploadedAt:   true,
       reportDate:   true,
+      parseMeta:    true,
     },
   });
 
