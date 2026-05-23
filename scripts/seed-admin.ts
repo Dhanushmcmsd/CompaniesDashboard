@@ -3,31 +3,49 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const USERS = [
+  {
+    name: "Admin",
+    email: "admin@dashboard.com",
+    password: "admin123",
+    role: "ADMIN" as const,
+    company: null,
+  },
+  {
+    name: "Employee",
+    email: "emp@dashboard.com",
+    password: "emp123",
+    role: "EMPLOYEE" as const,
+    company: "supra",
+  },
+  {
+    name: "Management",
+    email: "management@dashboard.com",
+    password: "mgmt123",
+    role: "MANAGEMENT" as const,
+    company: "supra",
+  },
+];
+
 async function main() {
-  const password = await bcrypt.hash("admin123", 10);
+  await prisma.accessRequest.deleteMany();
+  await prisma.user.deleteMany();
 
-  await prisma.user.upsert({
-    where: { email: "admin@supra.com" },
-    update: {
-      name: "Admin",
-      password,
-      role: "ADMIN",
-      company: "Supra Pacific",
-      approvedAt: new Date(),
-      approvedBy: "seed-script",
-    },
-    create: {
-      name: "Admin",
-      email: "admin@supra.com",
-      password,
-      role: "ADMIN",
-      company: "Supra Pacific",
-      approvedAt: new Date(),
-      approvedBy: "seed-script",
-    },
-  });
-
-  console.log("Admin user seeded: admin@supra.com / admin123");
+  for (const user of USERS) {
+    const password = await bcrypt.hash(user.password, 10);
+    await prisma.user.create({
+      data: {
+        name: user.name,
+        email: user.email,
+        password,
+        role: user.role,
+        company: user.company,
+        approvedAt: new Date(),
+        approvedBy: "seed-script",
+      },
+    });
+    console.log(`Seeded: ${user.email} / ${user.password} (${user.role})`);
+  }
 }
 
 main()
