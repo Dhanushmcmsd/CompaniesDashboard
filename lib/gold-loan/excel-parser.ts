@@ -463,15 +463,19 @@ function detectFileType(headers: string[], titleHint: ParsedFileType | null): Pa
 
 function parseDate(value: unknown): Date | null {
   if (value == null || value === "") return null;
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  }
   const raw = String(value).trim();
   const m = raw.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
   if (m) {
-    const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    const d = new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
     return Number.isNaN(d.getTime()) ? null : d;
   }
   const iso = new Date(raw);
-  return Number.isNaN(iso.getTime()) ? null : iso;
+  return Number.isNaN(iso.getTime())
+    ? null
+    : new Date(Date.UTC(iso.getFullYear(), iso.getMonth(), iso.getDate()));
 }
 
 function parseNumber(value: unknown): number | null {
@@ -482,13 +486,67 @@ function parseNumber(value: unknown): number | null {
 
 function parseReportDate(rawTitleRows: string[]): Date | null {
   const title = rawTitleRows.join(" ");
-  const between = title.match(/Between (\d{2}-\d{2}-\d{4}) and (\d{2}-\d{2}-\d{4})/i);
+  const between = title.match(/Between\s+(\d{2}[-/]\d{2}[-/]\d{4})\s+(?:and|to|-)\s+(\d{2}[-/]\d{2}[-/]\d{4})/i);
   if (between) return parseDate(between[2]);
-  const fromTo = title.match(/From (\d{2}-\d{2}-\d{4}) To (\d{2}-\d{2}-\d{4})/i);
+  const fromTo = title.match(/From\s+(\d{2}[-/]\d{2}[-/]\d{4})\s+To\s+(\d{2}[-/]\d{2}[-/]\d{4})/i);
   if (fromTo) return parseDate(fromTo[2]);
-  const asOn = title.match(/As on (\d{2}-\d{2}-\d{4})/i);
+  const asOn = title.match(/As on\s+(\d{2}[-/]\d{2}[-/]\d{4})/i);
   if (asOn) return parseDate(asOn[1]);
   return null;
+}
+
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11,
+};
+
+function parseReportDateFromFilename(filename?: string): Date | null {
+  if (!filename) return null;
+  const normalized = filename
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+  const monthPattern = Object.keys(MONTH_INDEX).join("|");
+  const match = normalized.match(new RegExp(`\\b(${monthPattern})\\b\\s*(\\d{2}|\\d{4})\\b`, "i"));
+  if (!match) return null;
+
+  const month = MONTH_INDEX[match[1].toLowerCase()];
+  const rawYear = Number(match[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(rawYear)) return null;
+
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+  return new Date(Date.UTC(year, month + 1, 0));
+}
+
+function inferReportDateFromRows(fileType: ParsedFileType, rows: Record<string, unknown>[]): Date | null {
+  const dateField = fileType === "transaction" ? "transactionDate" : "disbursementDate";
+  const dates = rows
+    .map((r) => r[dateField])
+    .filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()));
+  if (!dates.length) return null;
+  return new Date(Math.max(...dates.map((d) => d.getTime())));
 }
 
 function toStringOrNull(v: unknown): string | null {
@@ -521,7 +579,7 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
   const headerRowIndex = detectHeaderRowIndex(matrix);
   const trimmedMatrix = trimLeadingEmptyColumns(matrix, headerRowIndex);
   const titleRows = trimmedMatrix.slice(0, headerRowIndex).map((r) => (r ?? []).join(" "));
-  const reportDate = parseReportDate(titleRows);
+  let reportDate = parseReportDate(titleRows);
   const titleHint = detectFileTypeFromTitle(titleRows);
 
   const originalHeaders = (trimmedMatrix[headerRowIndex] ?? []).map((c) => String(c ?? "").trim());
@@ -655,6 +713,10 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
           .map((r) => String(r.loanAccountNumber ?? "").trim())
           .filter(Boolean)
       : [];
+
+  if (!reportDate) {
+    reportDate = parseReportDateFromFilename(filename) ?? inferReportDateFromRows(fileType, rows);
+  }
 
   return {
     fileType,

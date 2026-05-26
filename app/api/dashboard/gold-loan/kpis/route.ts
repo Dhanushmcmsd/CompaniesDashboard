@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { resolveSnapshot } from '@/lib/snapshotQuery';
+import { resolveSnapshotWithMeta } from '@/lib/snapshotQuery';
 
 export async function GET(req: Request) {
   try {
@@ -9,11 +9,40 @@ export async function GET(req: Request) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
-    const snap = await resolveSnapshot('supra', searchParams);
+    const resolved = await resolveSnapshotWithMeta('supra', searchParams);
+    const snap = resolved.snapshot;
 
-    if (!snap) return NextResponse.json({ kpis: null });
+    console.log('[gold-loan kpis]', {
+      requestedPeriod: resolved.requestedPeriod,
+      requestedDate: resolved.requestedDate,
+      requestedMonth: resolved.requestedMonth,
+      requestedYear: resolved.requestedYear,
+      exactSnapshotFound: resolved.exactSnapshotFound,
+      usedFallback: resolved.usedFallback,
+      snapshotDate: resolved.snapshotDate,
+      newDisbursements: snap?.newDisbursements ?? null,
+      mtdDisbursements: snap?.mtdDisbursements ?? null,
+    });
+
+    if (!snap) {
+      return NextResponse.json({
+        snapshotDate: null,
+        requestedDate: resolved.requestedDate,
+        requestedPeriod: resolved.requestedPeriod,
+        usedFallback: false,
+        exactSnapshotFound: false,
+        kpis: null,
+      });
+    }
 
     return NextResponse.json({
+      snapshotDate: resolved.snapshotDate,
+      requestedDate: resolved.requestedDate,
+      requestedMonth: resolved.requestedMonth,
+      requestedYear: resolved.requestedYear,
+      requestedPeriod: resolved.requestedPeriod,
+      usedFallback: resolved.usedFallback,
+      exactSnapshotFound: resolved.exactSnapshotFound,
       kpis: {
         totalAUM:             snap.totalAUM,
         totalCustomers:       snap.totalCustomers,
@@ -40,8 +69,8 @@ export async function GET(req: Request) {
         // Disbursements — sourced from Transaction Statement when uploaded,
         // otherwise from Issue Date in Loan Balance Statement.
         newDisbursements:     snap.newDisbursements,   // FTD
-        mtdDisbursements:     snap.mtdDisbursements,   // current financial year to date (Apr 1 to today)
-        ytdDisbursements:     snap.ytdDisbursements,   // placeholder for calendar-month or future use
+        mtdDisbursements:     snap.mtdDisbursements,   // MTD
+        ytdDisbursements:     snap.ytdDisbursements,   // Indian FY to date
       },
     });
   } catch (e) {

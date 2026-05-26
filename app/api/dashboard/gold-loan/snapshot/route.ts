@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { resolveSnapshot } from "@/lib/snapshotQuery";
+import { resolveSnapshotWithMeta } from "@/lib/snapshotQuery";
 import { aggregateGoldLoanDashboard } from "@/lib/gold-loan/dashboard-snapshot";
 
 /**
@@ -20,23 +20,52 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const company = searchParams.get("company") ?? "supra";
 
-    const snap = await resolveSnapshot(company, searchParams);
+    const resolved = await resolveSnapshotWithMeta(company, searchParams);
+    const snap = resolved.snapshot;
 
     const trendSnaps = await prisma.goldLoanSnapshot.findMany({
       where: { company },
-      orderBy: { createdAt: "asc" },
+      orderBy: { snapshotDate: "asc" },
       take: 10,
       select: {
-        reportDate: true,
+        snapshotDate: true,
         newDisbursements: true,
         mtdDisbursements: true,
-        createdAt: true,
       },
     });
 
-    const snapshot = aggregateGoldLoanDashboard(snap, trendSnaps);
+    const snapshot = aggregateGoldLoanDashboard(snap, trendSnaps, {
+      snapshotDate: resolved.snapshotDate,
+      requestedPeriod: resolved.requestedPeriod,
+      requestedDate: resolved.requestedDate,
+      requestedMonth: resolved.requestedMonth,
+      requestedYear: resolved.requestedYear,
+      usedFallback: resolved.usedFallback,
+      exactSnapshotFound: resolved.exactSnapshotFound,
+    });
 
-    return NextResponse.json({ snapshot }, { status: 200 });
+    console.log("[gold-loan snapshot]", {
+      requestedPeriod: resolved.requestedPeriod,
+      requestedDate: resolved.requestedDate,
+      requestedMonth: resolved.requestedMonth,
+      requestedYear: resolved.requestedYear,
+      exactSnapshotFound: resolved.exactSnapshotFound,
+      usedFallback: resolved.usedFallback,
+      snapshotDate: resolved.snapshotDate,
+      newDisbursements: snap?.newDisbursements ?? null,
+      mtdDisbursements: snap?.mtdDisbursements ?? null,
+    });
+
+    return NextResponse.json({
+      snapshot,
+      snapshotDate: resolved.snapshotDate,
+      requestedDate: resolved.requestedDate,
+      requestedMonth: resolved.requestedMonth,
+      requestedYear: resolved.requestedYear,
+      requestedPeriod: resolved.requestedPeriod,
+      usedFallback: resolved.usedFallback,
+      exactSnapshotFound: resolved.exactSnapshotFound,
+    }, { status: 200 });
   } catch (e) {
     return NextResponse.json(
       { error: `Server error: ${(e as Error).message}` },

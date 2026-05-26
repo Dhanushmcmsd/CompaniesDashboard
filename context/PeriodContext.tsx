@@ -33,11 +33,12 @@ export function PeriodProvider({ children, portfolio = 'gold-loan' }: PeriodProv
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = now.toISOString().slice(0, 7);
   const yearStr  = formatIndianFyLabel(indianFyEndYearForDate(now));
+  const defaultToLatestSnapshot = portfolio === 'gold-loan';
 
   const [period,   setPeriod]   = useState<Period>('FTD');
-  const [date,     setDate]     = useState(todayStr);
-  const [month,    setMonth]    = useState(monthStr);
-  const [year,     setYear]     = useState(yearStr);
+  const [date,     setDate]     = useState(defaultToLatestSnapshot ? '' : todayStr);
+  const [month,    setMonth]    = useState(defaultToLatestSnapshot ? '' : monthStr);
+  const [year,     setYear]     = useState(defaultToLatestSnapshot ? '' : yearStr);
   const [availableDays,   setAvailableDays]   = useState<string[]>([]);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [availableYears,  setAvailableYears]  = useState<string[]>([]);
@@ -56,9 +57,9 @@ export function PeriodProvider({ children, portfolio = 'gold-loan' }: PeriodProv
   }, [portfolio]);
 
   const periodParams =
-    period === 'FTD' ? `period=FTD&date=${date}` :
-    period === 'MTD' ? `period=MTD&month=${month}` :
-                      `period=YTD&year=${year}`;
+    period === 'FTD' ? `period=FTD${date ? `&date=${encodeURIComponent(date)}` : ''}` :
+    period === 'MTD' ? `period=MTD${month ? `&month=${encodeURIComponent(month)}` : ''}` :
+                      `period=YTD${year ? `&year=${encodeURIComponent(year)}` : ''}`;
 
   return (
     <PeriodContext.Provider value={{

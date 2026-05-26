@@ -11,13 +11,13 @@ export async function GET() {
     // Return last 10 snapshots as a trend series
     const snaps = await prisma.goldLoanSnapshot.findMany({
       where:   { company: "supra" },
-      orderBy: { createdAt: "asc" },
+      orderBy: { snapshotDate: "asc" },
       take:    10,
-      select:  { reportDate: true, newDisbursements: true, mtdDisbursements: true, createdAt: true },
+      select:  { snapshotDate: true, newDisbursements: true, mtdDisbursements: true },
     });
 
     const trend = snaps.map((s: typeof snaps[number]) => ({
-      date:  (s.reportDate ?? s.createdAt).toISOString().slice(0, 10),
+      date:  s.snapshotDate.toISOString().slice(0, 10),
       ftd:   s.newDisbursements,
       mtd:   s.mtdDisbursements,
     }));

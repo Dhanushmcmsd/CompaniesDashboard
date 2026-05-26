@@ -8,6 +8,13 @@ export type DisbursementTrendPoint = {
 };
 
 export type GoldLoanDashboardSnapshot = {
+  snapshotDate: string | null;
+  requestedPeriod?: string;
+  requestedDate?: string | null;
+  requestedMonth?: string | null;
+  requestedYear?: string | null;
+  usedFallback?: boolean;
+  exactSnapshotFound?: boolean;
   kpis: {
     totalAUM: number;
     totalCustomers: number;
@@ -172,16 +179,27 @@ function buildBranchPerformance(snap: GoldLoanSnapshot): GoldLoanDashboardSnapsh
  */
 export function aggregateGoldLoanDashboard(
   snap: GoldLoanSnapshot | null,
-  trendSnaps: Pick<GoldLoanSnapshot, "reportDate" | "createdAt" | "newDisbursements" | "mtdDisbursements">[],
+  trendSnaps: Pick<GoldLoanSnapshot, "snapshotDate" | "newDisbursements" | "mtdDisbursements">[],
+  meta: Partial<Pick<
+    GoldLoanDashboardSnapshot,
+    "snapshotDate" | "requestedPeriod" | "requestedDate" | "requestedMonth" | "requestedYear" | "usedFallback" | "exactSnapshotFound"
+  >> = {},
 ): GoldLoanDashboardSnapshot {
   const disbursementTrend: DisbursementTrendPoint[] = trendSnaps.map((s) => ({
-    date: (s.reportDate ?? s.createdAt).toISOString().slice(0, 10),
+    date: s.snapshotDate.toISOString().slice(0, 10),
     ftd: s.newDisbursements,
     mtd: s.mtdDisbursements,
   }));
 
   if (!snap) {
     return {
+      snapshotDate: meta.snapshotDate ?? null,
+      requestedPeriod: meta.requestedPeriod,
+      requestedDate: meta.requestedDate,
+      requestedMonth: meta.requestedMonth,
+      requestedYear: meta.requestedYear,
+      usedFallback: meta.usedFallback,
+      exactSnapshotFound: meta.exactSnapshotFound,
       kpis: null,
       alerts: [],
       disbursementTrend,
@@ -212,6 +230,13 @@ export function aggregateGoldLoanDashboard(
   const totalAUM = snap.totalAUM || 1;
 
   return {
+    snapshotDate: meta.snapshotDate ?? snap.snapshotDate.toISOString().slice(0, 10),
+    requestedPeriod: meta.requestedPeriod,
+    requestedDate: meta.requestedDate,
+    requestedMonth: meta.requestedMonth,
+    requestedYear: meta.requestedYear,
+    usedFallback: meta.usedFallback,
+    exactSnapshotFound: meta.exactSnapshotFound,
     kpis: {
       totalAUM: snap.totalAUM,
       totalCustomers: snap.totalCustomers,

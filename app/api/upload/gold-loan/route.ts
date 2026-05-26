@@ -5,7 +5,38 @@ import { prisma } from "@/lib/prisma";
 import { parseGoldLoanExcel, auditGoldLoanColumns } from "@/lib/gold-loan/excel-parser";
 import { calculateKPIs, calculateKPIsFromTransaction } from "@/lib/gold-loan/calculator";
 import { buildUploadErrors, type UploadParseMeta } from "@/lib/upload-errors";
-import type { Prisma } from "@prisma/client";
+import type { GoldLoanSnapshot, Prisma } from "@prisma/client";
+
+const COMPANY = "supra";
+
+function toDateOnlyUtc(date: Date | null): Date | null {
+  if (!date) return null;
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+}
+
+function formatDate(date: Date | null): string | null {
+  return date ? date.toISOString().slice(0, 10) : null;
+}
+
+function dayBounds(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+async function findSnapshotForDate(company: string, snapshotDate: Date) {
+  const { start, end } = dayBounds(snapshotDate);
+  return prisma.goldLoanSnapshot.findFirst({
+    where: { company, snapshotDate: { gte: start, lte: end } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+function hasTransactionDisbursement(snap: GoldLoanSnapshot | null): snap is GoldLoanSnapshot {
+  return snap?.newCustomerFromTxn != null;
+}
 
 async function createUploadBatch(data: {
   company: string;
@@ -119,6 +150,8 @@ export async function POST(req: Request) {
         fileType = parsed.fileType;
         rowCount = parsed.rowCount;
         perFileErrors.push(...parsed.errors, ...parsed.warnings);
+        const reportDate = toDateOnlyUtc(parsed.reportDate);
+        const snapshotDate = reportDate ?? toDateOnlyUtc(new Date())!;
 
         const audit = auditGoldLoanColumns(parsed.fileType, parsed.headers);
         matchedColumns = audit.matchedColumns;
@@ -135,7 +168,11 @@ export async function POST(req: Request) {
           );
         }
 
-        console.log(`[upload] ${file.name} → type=${fileType} rows=${rowCount}`);
+        console.log(
+          `[upload] ${file.name} → type=${fileType} rows=${rowCount}`,
+          `parsed.reportDate=${formatDate(parsed.reportDate)}`,
+          `snapshotDate=${formatDate(snapshotDate)}`,
+        );
 
         const parseMeta: UploadParseMeta = {
           matchedColumns,
@@ -145,11 +182,11 @@ export async function POST(req: Request) {
         };
 
         const batch = await createUploadBatch({
-          company: "supra",
+          company: COMPANY,
           portfolio: "gold-loan",
           fileType,
           originalName: file.name,
-          reportDate: parsed.reportDate,
+          reportDate,
           uploadedBy: session.user.email ?? "unknown",
           rowCount,
           status: "pending",
@@ -161,11 +198,17 @@ export async function POST(req: Request) {
           await updateUploadBatch(batch.id, { status: "error", errors: perFileErrors, parseMeta });
           status = "error";
         } else if (fileType === "balance") {
-          const kpis = calculateKPIs(parsed.rows, [], parsed.reportDate ?? new Date());
+          const existingSnapshot = await findSnapshotForDate(COMPANY, snapshotDate);
+          const hasTxnData = hasTransactionDisbursement(existingSnapshot);
+          const kpis = calculateKPIs(parsed.rows, [], snapshotDate);
           const overdueAccountNumbers = parsed.overdueAccountNumbers;
+          const branchDisbursement = (
+            hasTxnData ? existingSnapshot.branchDisbursement ?? [] : kpis.branchDisbursement
+          ) as Prisma.InputJsonValue;
 
           const balancePayload = {
-            reportDate: parsed.reportDate,
+            reportDate,
+            snapshotDate,
             totalAUM: kpis.totalAUM,
             totalAccounts: kpis.totalAccounts,
             totalCustomers: kpis.totalCustomers,
@@ -178,9 +221,9 @@ export async function POST(req: Request) {
             avgPresentRate: kpis.avgPresentRate,
             avgGoldValuePerLoan: kpis.avgGoldValuePerLoan,
             newCustomerFromLoanBalance: kpis.newCustomerFromLoanBalance,
-            newDisbursements: kpis.newDisbursements,
-            mtdDisbursements: kpis.mtdDisbursements,
-            ytdDisbursements: 0,
+            newDisbursements: hasTxnData ? existingSnapshot.newDisbursements : kpis.newDisbursements,
+            mtdDisbursements: hasTxnData ? existingSnapshot.mtdDisbursements : kpis.calendarMonthDisbursements,
+            ytdDisbursements: hasTxnData ? existingSnapshot.ytdDisbursements : kpis.mtdDisbursements,
             gnpaAmount: kpis.gnpaAmount,
             gnpaPct: kpis.gnpaPct,
             nnpaPct: kpis.nnpaPct,
@@ -200,47 +243,57 @@ export async function POST(req: Request) {
             sma2Count: kpis.sma2Count,
             highRiskAmount: kpis.highRiskAmount,
             highRiskCount: kpis.highRiskCount,
-            branchAUM: kpis.branchAUM,
-            productAUM: kpis.productAUM,
-            branchDisbursement: kpis.branchDisbursement,
-            branchNPA: kpis.branchNPA,
-            branchGoldWeight: kpis.branchGoldWeight,
+            branchAUM: kpis.branchAUM as Prisma.InputJsonValue,
+            productAUM: kpis.productAUM as Prisma.InputJsonValue,
+            branchDisbursement,
+            branchNPA: kpis.branchNPA as Prisma.InputJsonValue,
+            branchGoldWeight: kpis.branchGoldWeight as Prisma.InputJsonValue,
             highLTVAccounts: kpis.highLTVAccounts,
             goldValueMismatch: kpis.goldValueMismatch,
             auctionCases: kpis.auctionCases,
-            overdueAccountNumbers,
+            overdueAccountNumbers: overdueAccountNumbers as Prisma.InputJsonValue,
           };
 
-          await prisma.goldLoanSnapshot.upsert({
-            where: { uploadBatchId: batch.id },
-            create: {
-              uploadBatchId: batch.id,
-              company: "supra",
-              ...balancePayload,
-            },
-            update: balancePayload,
-          });
+          console.log(
+            `[upload] ${file.name} → balance KPIs:`,
+            `snapshotDate=${formatDate(snapshotDate)}`,
+            `newDisbursements=${balancePayload.newDisbursements.toFixed(2)}`,
+            `mtdDisbursements=${balancePayload.mtdDisbursements.toFixed(2)}`,
+            `preservedTxn=${hasTxnData}`,
+          );
+
+          if (existingSnapshot) {
+            await prisma.goldLoanSnapshot.update({
+              where: { id: existingSnapshot.id },
+              data: balancePayload,
+            });
+          } else {
+            await prisma.goldLoanSnapshot.create({
+              data: {
+                uploadBatchId: batch.id,
+                company: COMPANY,
+                ...balancePayload,
+              },
+            });
+          }
 
           await updateUploadBatch(batch.id, { status: "done", errors: perFileErrors, parseMeta });
           console.log(`[upload] ${file.name} → balance KPI snapshot saved`);
           status = missingRequired.length > 0 ? "warning" : "done";
         } else if (fileType === "transaction") {
-          const latestSnapshot = await prisma.goldLoanSnapshot.findFirst({
-            where: { company: "supra" },
-            orderBy: { snapshotDate: "desc" },
-            select: { id: true, totalOverdue: true, overdueAccountNumbers: true },
-          });
+          const matchingSnapshot = await findSnapshotForDate(COMPANY, snapshotDate);
 
-          const storedOverdue = latestSnapshot?.overdueAccountNumbers;
+          const storedOverdue = matchingSnapshot?.overdueAccountNumbers;
           const overdueArr: string[] = Array.isArray(storedOverdue)
             ? (storedOverdue as string[])
             : [];
           const overdueSet = new Set<string>(overdueArr);
 
-          const txnKPIs = calculateKPIsFromTransaction(parsed.rows, overdueSet, parsed.reportDate ?? new Date());
+          const txnKPIs = calculateKPIsFromTransaction(parsed.rows, overdueSet, snapshotDate);
 
           console.log(
             `[upload] ${file.name} → txn KPIs:`,
+            `snapshotDate=${formatDate(snapshotDate)}`,
             `disbursed=${txnKPIs.totalDisbursed.toFixed(2)}`,
             `collected=${txnKPIs.totalCollected.toFixed(2)}`,
             `overdueCollection=${txnKPIs.overdueCollectionFromTxn.toFixed(2)}`,
@@ -253,8 +306,8 @@ export async function POST(req: Request) {
           const fullTxnKPIs = calcTxnKPIs(
             parsed.rows,
             [],
-            latestSnapshot?.totalOverdue ?? 0,
-            parsed.reportDate ?? new Date(),
+            matchingSnapshot?.totalOverdue ?? 0,
+            snapshotDate,
           );
 
           const branchDisbForSnapshot = fullTxnKPIs.branchDisbursements.map((b) => ({
@@ -264,45 +317,42 @@ export async function POST(req: Request) {
             ytd: b.ytd,
           }));
 
-          if (latestSnapshot) {
-            const totalOverdue = latestSnapshot.totalOverdue;
+          if (matchingSnapshot) {
+            const totalOverdue = matchingSnapshot.totalOverdue;
             const newODCollection = txnKPIs.overdueCollectionFromTxn;
             const newEfficiency =
               totalOverdue > 0 ? (newODCollection / totalOverdue) * 100 : null;
 
-            await prisma.$executeRawUnsafe(
-              `UPDATE gold_loan_snapshots
-                 SET "overdueCollection" = $1,
-                     "collectionEfficiency" = $2,
-                     "branchDisbursement" = $3::jsonb,
-                     "newDisbursements" = $4,
-                     "mtdDisbursements" = $5,
-                     "ytdDisbursements" = $6,
-                     "newCustomerFromTxn" = $7
-                 WHERE id = $8`,
-              newODCollection,
-              newEfficiency,
-              JSON.stringify(branchDisbForSnapshot),
-              fullTxnKPIs.ftdDisbursement,
-              fullTxnKPIs.mtdDisbursement,
-              fullTxnKPIs.calendarMonthDisbursement,
-              txnKPIs.newCustomerFromTxn,
-              latestSnapshot.id,
-            );
+            await prisma.goldLoanSnapshot.update({
+              where: { id: matchingSnapshot.id },
+              data: {
+                reportDate: matchingSnapshot.reportDate ?? reportDate,
+                snapshotDate,
+                overdueCollection: newODCollection,
+                collectionEfficiency: newEfficiency,
+                branchDisbursement: branchDisbForSnapshot as Prisma.InputJsonValue,
+                newDisbursements: fullTxnKPIs.ftdDisbursement,
+                mtdDisbursements: fullTxnKPIs.calendarMonthDisbursement,
+                ytdDisbursements: fullTxnKPIs.mtdDisbursement,
+                newCustomerFromTxn: txnKPIs.newCustomerFromTxn,
+              },
+            });
 
             console.log(
-              `[upload] Patched snapshot ${latestSnapshot.id}:`,
+              `[upload] Patched snapshot ${matchingSnapshot.id}:`,
               `collectionEfficiency=${newEfficiency != null ? newEfficiency.toFixed(2) + "%" : "null"}`,
+              `snapshotDate=${formatDate(snapshotDate)}`,
               `ftdDisb=${fullTxnKPIs.ftdDisbursement.toFixed(2)}`,
-              `mtdDisb=${fullTxnKPIs.mtdDisbursement.toFixed(2)}`,
-              `calendarMonthDisb=${fullTxnKPIs.calendarMonthDisbursement.toFixed(2)}`,
+              `mtdDisb=${fullTxnKPIs.calendarMonthDisbursement.toFixed(2)}`,
+              `ytdDisb=${fullTxnKPIs.mtdDisbursement.toFixed(2)}`,
             );
           } else {
             await prisma.goldLoanSnapshot.create({
               data: {
                 uploadBatchId: batch.id,
-                company: "supra",
-                reportDate: parsed.reportDate,
+                company: COMPANY,
+                reportDate,
+                snapshotDate,
                 totalAUM: 0,
                 totalAccounts: 0,
                 totalCustomers: 0,
@@ -319,8 +369,8 @@ export async function POST(req: Request) {
                 newCustomerFromLoanBalance: 0,
                 newCustomerFromTxn: txnKPIs.newCustomerFromTxn,
                 newDisbursements: fullTxnKPIs.ftdDisbursement,
-                mtdDisbursements: fullTxnKPIs.mtdDisbursement,
-                ytdDisbursements: 0,
+                mtdDisbursements: fullTxnKPIs.calendarMonthDisbursement,
+                ytdDisbursements: fullTxnKPIs.mtdDisbursement,
                 gnpaAmount: 0,
                 gnpaPct: 0,
                 nnpaPct: 0,
@@ -349,6 +399,14 @@ export async function POST(req: Request) {
                 overdueAccountNumbers: [],
               },
             });
+
+            console.log(
+              `[upload] Created transaction-only snapshot:`,
+              `snapshotDate=${formatDate(snapshotDate)}`,
+              `newDisbursements=${fullTxnKPIs.ftdDisbursement.toFixed(2)}`,
+              `mtdDisbursements=${fullTxnKPIs.calendarMonthDisbursement.toFixed(2)}`,
+              `newCustomerFromTxn=${txnKPIs.newCustomerFromTxn}`,
+            );
 
             perFileErrors.push(
               "No balance-sheet snapshot found for this company. " +
