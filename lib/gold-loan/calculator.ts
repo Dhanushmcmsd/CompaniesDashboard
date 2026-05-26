@@ -140,6 +140,23 @@ function groupByBranch(rows: Record<string, unknown>[]): BranchDisbFromTxn[] {
     .sort((a, b) => b.totalDisbursed - a.totalDisbursed);
 }
 
+function toDate(value: unknown): Date | null {
+  if (value == null || value === '') return null
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+
+  const raw = String(value).trim()
+  const dayFirst = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/)
+  if (dayFirst) {
+    const date = new Date(Date.UTC(Number(dayFirst[3]), Number(dayFirst[2]) - 1, Number(dayFirst[1])))
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 function isSameDay(date: Date | null, other: Date): boolean {
   if (!date) return false
   return (
@@ -324,7 +341,7 @@ export function calculateKPIs(
   let mtdDisbursements = 0
   const newCustomerAccounts = new Set<string>()
   for (const r of rows) {
-    const date = r.disbursementDate instanceof Date ? r.disbursementDate : null
+    const date = toDate(r.disbursementDate)
     const amt  = safe(r.disbursedAmount)
     if (isSameDay(date, asOnDate)) {
       newDisbursements += amt
@@ -406,7 +423,7 @@ export function calculateKPIs(
   const disbMap = new Map<string, { ftd: number; mtd: number; ytd: number }>()
   for (const r of rows) {
     const b    = String(r.branchName ?? "Unknown")
-    const date = r.disbursementDate instanceof Date ? r.disbursementDate : null
+    const date = toDate(r.disbursementDate)
     const amt  = safe(r.disbursedAmount)
     const curr = disbMap.get(b) ?? { ftd: 0, mtd: 0, ytd: 0 }
     const isCurrentFY = isYTD(date, asOnDate)

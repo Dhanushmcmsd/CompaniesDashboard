@@ -35,7 +35,14 @@ async function findSnapshotForDate(company: string, snapshotDate: Date) {
 }
 
 function hasTransactionDisbursement(snap: GoldLoanSnapshot | null): snap is GoldLoanSnapshot {
-  return snap?.newCustomerFromTxn != null;
+  return (
+    snap != null &&
+    (
+      snap.newCustomerFromTxn != null ||
+      (snap.newDisbursements != null && snap.newDisbursements > 0) ||
+      (snap.mtdDisbursements != null && snap.mtdDisbursements > 0)
+    )
+  );
 }
 
 async function createUploadBatch(data: {
@@ -221,9 +228,15 @@ export async function POST(req: Request) {
             avgPresentRate: kpis.avgPresentRate,
             avgGoldValuePerLoan: kpis.avgGoldValuePerLoan,
             newCustomerFromLoanBalance: kpis.newCustomerFromLoanBalance,
-            newDisbursements: hasTxnData ? existingSnapshot.newDisbursements : kpis.newDisbursements,
-            mtdDisbursements: hasTxnData ? existingSnapshot.mtdDisbursements : kpis.calendarMonthDisbursements,
-            ytdDisbursements: hasTxnData ? existingSnapshot.ytdDisbursements : kpis.mtdDisbursements,
+            newDisbursements: hasTxnData
+              ? Math.max(existingSnapshot.newDisbursements ?? 0, kpis.newDisbursements)
+              : kpis.newDisbursements,
+            mtdDisbursements: hasTxnData
+              ? Math.max(existingSnapshot.mtdDisbursements ?? 0, kpis.calendarMonthDisbursements)
+              : kpis.calendarMonthDisbursements,
+            ytdDisbursements: hasTxnData
+              ? Math.max(existingSnapshot.ytdDisbursements ?? 0, kpis.mtdDisbursements)
+              : kpis.mtdDisbursements,
             gnpaAmount: kpis.gnpaAmount,
             gnpaPct: kpis.gnpaPct,
             nnpaPct: kpis.nnpaPct,

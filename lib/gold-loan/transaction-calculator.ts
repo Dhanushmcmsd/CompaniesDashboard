@@ -5,6 +5,8 @@
  *
  * Tran Mode codes:
  *   'A' = Disbursement (outflow)  — Principal Debit > 0
+ *   'J' = Disbursement/renewal adjustment when Principal Debit > 0
+ *   'G' = Disbursement/transfer adjustment when Principal Debit > 0
  *   'C' = Cash collection         — Amount Received, Principal Credit, Interest
  *   'B' = Bank collection          — same columns as C
  *
@@ -135,10 +137,8 @@ function isCollection(mode: TranMode): boolean {
   return m === 'C' || m === 'B';
 }
 
-function isDisbursement(mode: TranMode): boolean {
-  const m = String(mode ?? '').trim().toUpperCase();
-  return m === 'A';
-}
+const DISBURSEMENT_MODES = new Set(['A', 'J', 'G']);
+
 
 // ─── main export ────────────────────────────────────────────────────────────
 
@@ -169,12 +169,12 @@ export function calculateTransactionKPIs(
   // ── Partition rows ────────────────────────────────────────────────────────
   // Collection rows: Tran Mode = C (Cash) or B (Bank) — per spec
   const collectionRows   = txnRows.filter((r) => isCollection(r.tranMode as TranMode));
-  // Disbursement rows: Tran Mode = A — per spec
+  // Disbursement rows: Tran Mode = A/J/G — per uploaded transaction files
   // Fallback: if tranMode is missing/unknown, treat principalDr > 0 rows as disbursements
   const disbursementRows = txnRows.filter((r) => {
-    if (isDisbursement(r.tranMode as TranMode)) return true;
-    // Fallback for rows without a valid Tran Mode
     const mode = String(r.tranMode ?? '').trim().toUpperCase();
+    if (DISBURSEMENT_MODES.has(mode)) return true;
+    // Fallback for rows without a valid Tran Mode
     return !mode && safe(r.principalDr) > 0;
   });
 
