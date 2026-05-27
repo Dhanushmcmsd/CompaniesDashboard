@@ -3,15 +3,18 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeDailyDisbursementTrend } from "@/lib/gold-loan/dashboard-snapshot";
+import { Prisma } from "@prisma/client";
 
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Prefer the per-day breakdown saved from the latest transaction statement.
-    const latest = await prisma.goldLoanSnapshot.findFirst({
-      where:   { company: "supra" },
+    const latestWithDaily = await prisma.goldLoanSnapshot.findFirst({
+      where: {
+        company: "supra",
+        dailyDisbursements: { not: Prisma.JsonNull },
+      },
       orderBy: { snapshotDate: "desc" },
       select:  {
         snapshotDate: true,
@@ -21,11 +24,11 @@ export async function GET() {
       },
     });
 
-    if (!latest) return NextResponse.json({ trend: [] });
-
-    const dailyTrend = normalizeDailyDisbursementTrend(latest.dailyDisbursements);
-    if (dailyTrend.length > 0) {
-      return NextResponse.json({ trend: dailyTrend });
+    if (latestWithDaily) {
+      const dailyTrend = normalizeDailyDisbursementTrend(latestWithDaily.dailyDisbursements);
+      if (dailyTrend.length > 0) {
+        return NextResponse.json({ trend: dailyTrend });
+      }
     }
 
     // Fallback: multi-snapshot series for data uploaded before daily breakdowns existed.

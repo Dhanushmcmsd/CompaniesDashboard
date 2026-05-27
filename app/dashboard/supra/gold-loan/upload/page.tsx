@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useGoldLoanData } from '@/context/GoldLoanDataContext';
 
 type UploadResult = {
   fileName: string;
@@ -11,6 +12,7 @@ type UploadResult = {
 };
 
 export default function GoldLoanUploadPage() {
+  const { refresh } = useGoldLoanData();
   const [loanFile, setLoanFile] = useState<File | null>(null);
   const [txnFile, setTxnFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,6 +50,7 @@ export default function GoldLoanUploadPage() {
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       if (!Array.isArray(data.results)) throw new Error('Invalid response from server');
       setResult({ results: data.results as UploadResult[] });
+      await refresh();
       setProgress(100);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');

@@ -17,6 +17,8 @@ function fmt2(n: unknown) {
   return num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const toCr = (v: number) => (v / 10_000_000).toFixed(2);
+
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
@@ -56,8 +58,8 @@ export default function DisbursementSection() {
             <LineChart data={trend} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" tick={{ fontSize: 9 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => [`\u20b9 ${fmt2(v)} Cr`]} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => toCr(Number(v))} />
+              <Tooltip formatter={(v: number) => [`\u20b9 ${toCr(v)} Cr`]} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Line type="monotone" dataKey="ftd" stroke="#3b82f6" strokeWidth={2} dot={false} name="FTD" />
               <Line type="monotone" dataKey="mtd" stroke="#22c55e" strokeWidth={2} dot={false} name="MTD" />
@@ -76,9 +78,9 @@ export default function DisbursementSection() {
               margin={{ top: 0, right: 16, left: 8, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
-              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v} Cr`} />
+              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${toCr(Number(v))} Cr`} />
               <YAxis type="category" dataKey="branch" tick={{ fontSize: 9 }} width={70} />
-              <Tooltip formatter={(v: number) => [`\u20b9 ${fmt2(v)} Cr`, period]} />
+              <Tooltip formatter={(v: number) => [`\u20b9 ${toCr(v)} Cr`, period]} />
               <Bar dataKey={disbKey} fill="#3b82f6" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -100,8 +102,8 @@ export default function DisbursementSection() {
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v} Cr`} />
-              <Tooltip formatter={(v: number) => [`\u20b9 ${fmt2(v)} Cr`]} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${toCr(Number(v))} Cr`} />
+              <Tooltip formatter={(v: number) => [`\u20b9 ${toCr(v)} Cr`]} />
               <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

@@ -257,12 +257,21 @@ export function calculateTransactionKPIs(
   }>();
 
   const newCustomerAccounts = new Set<string>();
+  const asOnKey = toDateKey(asOnDate);
+  const asOnMonthKey = asOnKey ? asOnKey.slice(0, 7) : null;
   for (const r of disbursementRows) {
     const date   = r.transactionDate instanceof Date ? r.transactionDate : null;
     // disbursedAmount maps to "Issue Amount" column; fall back to principalDr if missing
     const amt    = safe(r.disbursedAmount) || safe(r.principalDr);
     const branch = String(r.branchName ?? 'Unknown');
-    const isFtd = date != null && date.getFullYear() === asOnDate.getFullYear() && date.getMonth() === asOnDate.getMonth() && date.getDate() === asOnDate.getDate();
+    const dateKey = toDateKey(date);
+    const isFtd   = dateKey !== null && dateKey === asOnKey;
+    const isMonthToDateByKey =
+      dateKey !== null &&
+      asOnKey !== null &&
+      asOnMonthKey !== null &&
+      dateKey.startsWith(asOnMonthKey) &&
+      dateKey <= asOnKey;
 
     if (isFtd) {
       ftdDisbursement += amt;
@@ -273,7 +282,6 @@ export function calculateTransactionKPIs(
     if (isYTD(date, asOnDate))               mtdDisbursement += amt;
 
     // Daily trend
-    const dateKey = toDateKey(date);
     if (dateKey) {
       const entry = dailyMap.get(dateKey) ?? { totalDisbursed: 0, accountCount: 0 };
       dailyMap.set(dateKey, {
@@ -288,7 +296,7 @@ export function calculateTransactionKPIs(
     };
     branchDisbMap.set(branch, {
       ftd:               bd.ftd               + (isFtd ? amt : 0),
-      mtd:               bd.mtd               + (isMTD(date, asOnDate) ? amt : 0),
+      mtd:               bd.mtd               + (isMonthToDateByKey ? amt : 0),
       ytd:               bd.ytd               + (isYTD(date, asOnDate) ? amt : 0),
       totalDisbursed:    bd.totalDisbursed    + amt,
       disbursementCount: bd.disbursementCount + 1,

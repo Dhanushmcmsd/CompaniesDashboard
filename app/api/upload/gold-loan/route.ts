@@ -294,7 +294,26 @@ export async function POST(req: Request) {
           console.log(`[upload] ${file.name} → balance KPI snapshot saved`);
           status = missingRequired.length > 0 ? "warning" : "done";
         } else if (fileType === "transaction") {
-          const matchingSnapshot = await findSnapshotForDate(COMPANY, snapshotDate);
+          let matchingSnapshot = await findSnapshotForDate(COMPANY, snapshotDate);
+
+          if (!matchingSnapshot) {
+            const threeDaysAgo = new Date(snapshotDate);
+            threeDaysAgo.setUTCDate(threeDaysAgo.getUTCDate() - 3);
+            const threeDaysAhead = new Date(snapshotDate);
+            threeDaysAhead.setUTCDate(threeDaysAhead.getUTCDate() + 3);
+
+            matchingSnapshot = await prisma.goldLoanSnapshot.findFirst({
+              where: {
+                company: COMPANY,
+                totalAUM: { gt: 0 },
+                snapshotDate: {
+                  gte: threeDaysAgo,
+                  lte: threeDaysAhead,
+                },
+              },
+              orderBy: { snapshotDate: "desc" },
+            });
+          }
 
           const storedOverdue = matchingSnapshot?.overdueAccountNumbers;
           const overdueArr: string[] = Array.isArray(storedOverdue)

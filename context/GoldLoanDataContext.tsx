@@ -11,13 +11,14 @@ export type { GoldLoanDashboardSnapshot } from '@/lib/gold-loan/dashboard-snapsh
 interface GoldLoanDataContextValue {
   snapshot: GoldLoanDashboardSnapshot | null;
   isLoading: boolean;
+  refresh: () => Promise<unknown>;
 }
 
 const GoldLoanDataContext = createContext<GoldLoanDataContextValue | null>(null);
 
 export function GoldLoanDataProvider({ children }: { children: ReactNode }) {
   const { periodParams } = usePeriod();
-  const { data, isLoading } = useSWR<{ snapshot: GoldLoanDashboardSnapshot }>(
+  const { data, isLoading, mutate } = useSWR<{ snapshot: GoldLoanDashboardSnapshot }>(
     `/api/dashboard/gold-loan/snapshot?${periodParams}`,
     fetcher,
     { refreshInterval: 30_000, revalidateOnFocus: true },
@@ -27,8 +28,9 @@ export function GoldLoanDataProvider({ children }: { children: ReactNode }) {
     () => ({
       snapshot: data?.snapshot ?? null,
       isLoading,
+      refresh: () => mutate(),
     }),
-    [data, isLoading],
+    [data, isLoading, mutate],
   );
 
   return (
