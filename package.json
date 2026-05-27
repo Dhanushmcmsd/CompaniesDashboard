@@ -13,7 +13,8 @@
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
-    "validate:excel": "node scripts/validate-production-files.mjs"
+    "validate:excel": "node scripts/validate-production-files.mjs",
+    "db:seed": "node scripts/seed-admin.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

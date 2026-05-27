@@ -150,6 +150,34 @@ function buildAlerts(snap: GoldLoanSnapshot) {
   return alerts;
 }
 
+function numeric(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+export function normalizeDailyDisbursementTrend(value: unknown): DisbursementTrendPoint[] {
+  if (!Array.isArray(value)) return [];
+
+  let runningMonthTotal = 0;
+  return value
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === "object")
+    .map((item) => ({
+      date: String(item.date ?? ""),
+      ftd: numeric(item.ftd ?? item.totalDisbursed),
+      mtd: item.mtd == null ? null : numeric(item.mtd),
+    }))
+    .filter((item) => item.date)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((item) => {
+      runningMonthTotal += item.ftd;
+      return {
+        date: item.date,
+        ftd: item.ftd,
+        mtd: item.mtd ?? runningMonthTotal,
+      };
+    });
+}
+
 function buildBranchPerformance(snap: GoldLoanSnapshot): GoldLoanDashboardSnapshot["branchPerformance"] {
   const branchAUM = (snap.branchAUM ?? []) as { branch: string; aum: number; accounts: number }[];
   const branchNPA = (snap.branchNPA ?? []) as { branch: string; gnpaAmount: number; gnpaPct: number }[];
@@ -185,11 +213,13 @@ export function aggregateGoldLoanDashboard(
     "snapshotDate" | "requestedPeriod" | "requestedDate" | "requestedMonth" | "requestedYear" | "usedFallback" | "exactSnapshotFound"
   >> = {},
 ): GoldLoanDashboardSnapshot {
-  const disbursementTrend: DisbursementTrendPoint[] = trendSnaps.map((s) => ({
+  const snapshotDailyTrend = normalizeDailyDisbursementTrend(snap?.dailyDisbursements);
+  const fallbackTrend: DisbursementTrendPoint[] = trendSnaps.map((s) => ({
     date: s.snapshotDate.toISOString().slice(0, 10),
     ftd: s.newDisbursements,
     mtd: s.mtdDisbursements,
   }));
+  const disbursementTrend = snapshotDailyTrend.length > 0 ? snapshotDailyTrend : fallbackTrend;
 
   if (!snap) {
     return {

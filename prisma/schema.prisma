@@ -36,6 +36,7 @@ model GoldLoanSnapshot {
   newDisbursements      Float
   mtdDisbursements      Float
   ytdDisbursements      Float
+  dailyDisbursements    Json?
 
   gnpaAmount            Float
   gnpaPct               Float

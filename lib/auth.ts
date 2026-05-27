@@ -3,6 +3,18 @@ import type { NextAuthOptions } from "next-auth";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function assertAuthConfigured() {
+  if (!process.env.NEXTAUTH_SECRET?.trim()) {
+    throw new Error(
+      "NEXTAUTH_SECRET is missing. Add it to .env.local (see .env.local.example).",
+    );
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   // Explicitly set the secret so next-auth never falls back to an auto-generated
   // one (which triggers the [NO_SECRET] warning in dev and breaks prod).
@@ -17,27 +29,43 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        assertAuthConfigured();
+
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Invalid email or password");
         }
 
-        const user = await prisma.user.findUnique({ where: { email: credentials.email } });
-        if (!user) throw new Error("Invalid email or password");
+        const email = normalizeEmail(credentials.email);
 
-        const ok = await bcrypt.compare(credentials.password, user.password);
-        if (!ok) throw new Error("Invalid email or password");
+        try {
+          const user = await prisma.user.findFirst({
+            where: { email: { equals: email, mode: "insensitive" } },
+          });
+          if (!user) throw new Error("Invalid email or password");
 
-        if (user.role === "PENDING") {
-          throw new Error("Account pending admin approval");
+          const ok = await bcrypt.compare(credentials.password, user.password);
+          if (!ok) throw new Error("Invalid email or password");
+
+          if (user.role === "PENDING") {
+            throw new Error("Account pending admin approval");
+          }
+
+          return {
+            id:      user.id,
+            name:    user.name,
+            email:   user.email,
+            role:    user.role,
+            company: user.company,
+          };
+        } catch (error) {
+          const code = (error as { code?: string }).code;
+          if (code === "P1001") {
+            throw new Error(
+              "Cannot reach the database. Check DATABASE_URL in .env.local, wake the Neon project in the console, then restart npm run dev.",
+            );
+          }
+          throw error;
         }
-
-        return {
-          id:      user.id,
-          name:    user.name,
-          email:   user.email,
-          role:    user.role,
-          company: user.company,
-        };
       },
     }),
   ],

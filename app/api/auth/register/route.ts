@@ -10,6 +10,8 @@ export async function POST(req: Request) {
     if (!name || !email || !password || !confirmPassword || !company) {
       return NextResponse.json({ error: "All required fields must be provided" }, { status: 400 });
     }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
     if (!allowedCompanies.includes(company)) {
       return NextResponse.json({ error: "Invalid company" }, { status: 400 });
     }
@@ -18,7 +20,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+    });
     if (existing) {
       return NextResponse.json({ error: "Email already exists" }, { status: 409 });
     }
@@ -28,7 +32,7 @@ export async function POST(req: Request) {
     const user = await prisma.user.create({
       data: {
         name,
-        email,
+        email: normalizedEmail,
         password: hashed,
         role: "PENDING",
         company,

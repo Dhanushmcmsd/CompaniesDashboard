@@ -45,12 +45,13 @@ export default function DisbursementSection() {
 
   const disbKey: keyof BranchDisb = period === "YTD" ? "ytd" : "mtd";
   const emptyMsg = <p className="text-sm text-gray-400 text-center py-10">Upload a Balance Statement to see data.</p>;
+  const trendEmptyMsg = <p className="text-sm text-gray-400 text-center py-10">Upload a Transaction Statement to see daily disbursement trend.</p>;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* Trend */}
       <ChartCard title="Daily Disbursement Trend (\u20b9 Cr)">
-        {trend.length === 0 ? emptyMsg : (
+        {trend.length === 0 ? trendEmptyMsg : (
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={trend} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />

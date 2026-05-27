@@ -12,6 +12,15 @@ function getHomeByRole(role?: string | null) {
   return "/login";
 }
 
+function getLoginErrorMessage(error?: string | null) {
+  if (!error) return null;
+  if (error === "CredentialsSignin") return "Invalid email or password";
+  if (error.toLowerCase().includes("pending")) {
+    return "Your account is pending admin approval";
+  }
+  return error;
+}
+
 export default function LoginPage() {
   const params = useSearchParams();
   const [email, setEmail] = useState("");
@@ -32,7 +41,7 @@ export default function LoginPage() {
     setError(null);
 
     const result = await signIn("credentials", {
-      email,
+      email: email.trim().toLowerCase(),
       password,
       redirect: false,
     });
@@ -40,7 +49,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result?.error) {
-      setError("Invalid email or password");
+      setError(getLoginErrorMessage(result.error));
       return;
     }
 
@@ -90,6 +99,16 @@ export default function LoginPage() {
         <Link href="/register" className="inline-block mt-5 text-sm text-[#0f172a] hover:underline">
           Request Access →
         </Link>
+
+        {process.env.NODE_ENV === "development" && (
+          <p className="mt-4 text-xs text-gray-400 leading-relaxed">
+            Local dev accounts (run <code className="text-gray-500">npm run db:seed</code> if login fails):
+            <br />
+            Employee — <span className="text-gray-500">emp@dashboard.com</span> / <span className="text-gray-500">emp123</span>
+            <br />
+            Management — <span className="text-gray-500">management@dashboard.com</span> / <span className="text-gray-500">mgmt123</span>
+          </p>
+        )}
       </div>
     </main>
   );
