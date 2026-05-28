@@ -20,6 +20,34 @@ const KEYWORDS = ["account", "customer", "balance", "disburs", "principal", "int
 
 /** Shared optional fields — merged into each file-type map at parse time. */
 const SHARED_ALIASES: Record<string, string[]> = {
+  customerId: [
+    "customer id",
+    "customer id no",
+    "customer id number",
+    "customer no",
+    "customer number",
+    "customer code",
+    "cust id",
+    "cust no",
+    "customer number hash",
+  ],
+  loanAccountNumber: [
+    "account num",
+    "account num number",
+    "account number",
+    "loan account number",
+    "loan a c number",
+    "a c number",
+    "account no",
+    "acct no",
+    "acct number",
+  ],
+  branchName: [
+    "branch name",
+    "branch",
+    "br name",
+    "branch office",
+  ],
   branchState: ["br state", "br. state"],
   branchRegion: ["br region", "br. region"],
   otherCharges: ["other charges", "other charges due"],
@@ -28,48 +56,69 @@ const SHARED_ALIASES: Record<string, string[]> = {
 
 /** FILE TYPE 1: Gold Loan Balance Statement (production headers). */
 const BALANCE_ALIASES: Record<string, string[]> = {
-  loanAccountNumber: [
-    "account num#",
-    "account num number",
-    "account numnumber",
-    "account number",
-    "account no",
-    "account no ",
-    "loan account number",
-    "loan account no",
-    "acct no",
-    "acct number",
-    "account num",
-  ],
-  customerId: ["customer id", "customer number", "customer code", "cust id"],
   customerName: ["customer name", "name"],
-  branchName: ["branch name", "branch"],
   branchCode: ["br. code", "br code", "branch code"],
   schemeName: ["scheme name", "loan type", "product", "loan product"],
   schemeCode: ["scheme code"],
   inventoryNo: ["inventory no", "inventory number"],
-  disbursementDate: ["disbursment date", "disbursement date", "disb date", "disbursement dt"],
-  disbursedAmount: ["disbursed amount", "disbursement amount", "loan amount"],
   closingBalance: [
     "closing balance",
     "closing balance cr",
+    "principal closing",
     "principal closing amount",
     "outstanding balance",
-    "outstanding amount",
-    "loan outstanding",
+    "balance outstanding",
     "current balance",
+  ],
+  disbursementDate: [
+    "disbursement date",
+    "disbursment date",
+    "issue date",
+    "loan date",
+    "date of disbursement",
+    "disb date",
+    "disbursement dt",
+  ],
+  disbursedAmount: [
+    "disbursed amount",
+    "disbursement amount",
+    "loan amount",
+    "issue amount",
+    "sanction amount",
   ],
   openingBalance: ["opening balance"],
   principalDr: ["principal dr.", "principal dr", "principal debit"],
-  principalCr: ["principal cr.", "principal cr", "principal credit", "principal received", "principal collection"],
+  principalCr: [
+    "principal cr.",
+    "principal cr",
+    "principal credit",
+    "principal received",
+    "principal collection",
+    "principal recd",
+  ],
   interestRcvd: ["interest rcvd", "tot. intr. amount", "intr. amount"],
   interestRcvDuring: ["interest rcvd during"],
-  interestRate: ["total interest rate", "interest rate", "yield"],
-  goldWeight: ["gold wt.", "gold wt", "gold weight", "net gold weight"],
+  interestRate: [
+    "total interest rate",
+    "interest rate",
+    "roi",
+    "rate of interest",
+    "yield",
+  ],
+  goldWeight: [
+    "gold wt",
+    "gold wt.",
+    "gold weight",
+    "net gold wt",
+    "net gold weight",
+    "pledged gold weight",
+    "gold wt gm",
+    "gold weight gms",
+  ],
   grossWt: ["gross wt.", "gross wt", "gross weight"],
   goldPurity: ["purity", "gold purity"],
   presentRate: ["present rate", "rate per gram", "gold rate"],
-  dpd: ["dpd", "days past due", "days overdue"],
+  dpd: ["dpd", "dpd days", "days past due", "days overdue", "overdue days"],
   totalOutstanding: ["total outstanding", "loan outstanding"],
   totalInterestDue: ["total interest due"],
   maturityDate: ["maturity date"],
@@ -80,19 +129,40 @@ const BALANCE_ALIASES: Record<string, string[]> = {
 
 /** FILE TYPE 2: Gold Loan Transaction Statement. */
 const TRANSACTION_ALIASES: Record<string, string[]> = {
-  loanAccountNumber: ["account number", "account num#", "account num number", "loan account number"],
-  customerId: ["customer number", "customer id", "customer code", "cust id"],
   customerName: ["name", "customer name"],
-  branchName: ["branch name", "branch"],
   branchCode: ["br. code", "br code", "branch code"],
   schemeName: ["loan type", "scheme name", "product", "loan product"],
   inventoryNo: ["inventory number", "inventory no"],
-  disbursementDate: ["issue date"],
-  disbursedAmount: ["issue amount"],
-  principalDr: ["principal debit", "principal dr.", "principal dr"],
-  principalCr: ["principal credit", "principal cr.", "principal cr"],
-  interestRcvd: ["tot. intr. amount", "tot intr amount", "intr. amount", "total interest amount"],
-  interestRate: ["rate of interest", "interest rate"],
+  disbursementDate: ["issue date", "disbursement date", "disbursment date"],
+  disbursedAmount: [
+    "issue amount",
+    "disbursed amount",
+    "loan amount",
+    "disbursement amount",
+  ],
+  principalDr: [
+    "principal debit",
+    "principal dr",
+    "principal dr.",
+    "principal disbursed",
+    "disbursed principal",
+  ],
+  principalCr: [
+    "principal credit",
+    "principal cr",
+    "principal cr.",
+    "principal received",
+    "principal collection",
+    "principal recd",
+  ],
+  interestRcvd: [
+    "tot. intr. amount",
+    "tot intr amount",
+    "intr. amount",
+    "total interest amount",
+    "interest amount",
+  ],
+  interestRate: ["rate of interest", "interest rate", "roi"],
   transactionDate: [
     "trandate",
     "tran date",
@@ -100,10 +170,18 @@ const TRANSACTION_ALIASES: Record<string, string[]> = {
     "transaction dt",
     "txn date",
     "txndate",
+    "receipt date",
+    "posting date",
+    "voucher date",
   ],
   tranMode: ["tran mode", "transaction mode", "mode"],
   totalAmountReceived: [
     "amount received",
+    "total amount received",
+    "receipt amount",
+    "received amount",
+    "amount rcvd",
+    "total received",
     "interest and other charges received",
   ],
 };
@@ -159,9 +237,107 @@ export function normalizeHeader(value: unknown): string {
     .toLowerCase()
     .replace(/\r?\n/g, " ")
     .replace(/#/g, " number ")
+    .replace(/\ba\s*\/\s*c\b/g, " account ")
+    .replace(/\ba\s+c\b/g, " account ")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function normalizeTokens(value: unknown): string[] {
+  return normalizeHeader(value)
+    .split(" ")
+    .filter(Boolean)
+    .map((t) => {
+      if (t === "disbursment") return "disbursement";
+      if (t === "cust" || t === "customerno" || t === "customernumber") return "customer";
+      if (t === "ac") return "account";
+      if (t === "amt") return "amount";
+      if (t === "intr" || t === "int") return "interest";
+      if (t === "rcvd" || t === "recv" || t === "received") return "received";
+      if (t === "prin") return "principal";
+      if (t === "dpddays") return "dpd";
+      if (t === "wt") return "weight";
+      if (t === "num" || t === "number") return "number";
+      if (t === "trandate") return "trandate";
+      return t;
+    });
+}
+
+export function isAliasMatch(header: string, alias: string): boolean {
+  const h = new Set(normalizeTokens(header));
+  const a = normalizeTokens(alias);
+  return a.length > 0 && a.every((tok) => h.has(tok));
+}
+
+const MIN_ALIAS_SCORE = 60;
+
+export function scoreAliasMatch(header: string, alias: string): number {
+  const hn = normalizeHeader(header);
+  const an = normalizeHeader(alias);
+
+  if (hn === an) return 100;
+
+  // Avoid mapping collection totals to interest-only headers.
+  if (
+    (an.includes("amount received") || an === "total received") &&
+    hn.includes("interest") &&
+    !hn.includes("amount received") &&
+    !hn.includes("other charges received")
+  ) {
+    return 0;
+  }
+
+  // Prefer "Total Interest Rate" over bare "Interest Rate" when alias is specific.
+  if (an.includes("total interest rate") && hn === "interest rate") return 0;
+
+  // Closing balance must not map to a separate "total outstanding" column.
+  if (an.includes("closing balance") && hn === "total outstanding") return 0;
+  if (an.includes("closing balance") && hn.includes("outstanding") && !hn.includes("closing")) {
+    return 50;
+  }
+
+  // Disbursement amount should not steal principal debit column.
+  if (
+    (an.includes("issue amount") || an.includes("disbursed amount")) &&
+    hn.includes("principal") &&
+    hn.includes("debit")
+  ) {
+    return 0;
+  }
+
+  if (hn.includes(an) && an.length >= 4) return 80 + Math.min(an.length, 20);
+  if (isAliasMatch(hn, an)) return MIN_ALIAS_SCORE + normalizeTokens(an).length;
+  return 0;
+}
+
+export function findBestColumn(headers: string[], aliases: string[]): number | null {
+  let bestIdx: number | null = null;
+  let bestScore = 0;
+  let bestHeaderLen = 0;
+  let bestAliasLen = 0;
+
+  headers.forEach((h, i) => {
+    for (const alias of aliases) {
+      const score = scoreAliasMatch(h, alias);
+      const headerLen = h.length;
+      const aliasLen = normalizeHeader(alias).length;
+      const isBetter =
+        score > bestScore ||
+        (score === bestScore &&
+          score >= MIN_ALIAS_SCORE &&
+          (headerLen > bestHeaderLen || (headerLen === bestHeaderLen && aliasLen > bestAliasLen)));
+
+      if (isBetter) {
+        bestScore = score;
+        bestIdx = i;
+        bestHeaderLen = headerLen;
+        bestAliasLen = aliasLen;
+      }
+    }
+  });
+
+  return bestScore >= MIN_ALIAS_SCORE ? bestIdx : null;
 }
 
 function scoreHeaderRow(row: unknown[] | undefined): number {
@@ -280,38 +456,26 @@ function findBestHeaderRow(rows: unknown[][]): number {
   return bestIndex;
 }
 
-function fuzzyMatch(header: string, alias: string): boolean {
-  return header.includes(alias) || alias.includes(header);
-}
-
 export function findColumn(headers: string[], aliases: string[]): string | null {
-  for (const alias of aliases) {
-    const normAlias = normalizeHeader(alias);
-    const exact = headers.find((h) => h === normAlias);
-    if (exact) return exact;
-  }
-  for (const alias of aliases) {
-    const normAlias = normalizeHeader(alias);
-    const fuzzy = headers.find((h) => fuzzyMatch(h, normAlias));
-    if (fuzzy) return fuzzy;
-  }
-  return null;
+  const idx = findBestColumn(headers, aliases);
+  return idx != null ? headers[idx] : null;
 }
 
 /** All distinct header keys matching any alias (Thane txn has two collection columns). */
 export function findAllColumns(headers: string[], aliases: string[]): string[] {
-  const keys: string[] = [];
-  for (const alias of aliases) {
-    const normAlias = normalizeHeader(alias);
-    const exact = headers.find((h) => h === normAlias);
-    if (exact && !keys.includes(exact)) keys.push(exact);
+  const scored: { header: string; score: number }[] = [];
+
+  for (const h of headers) {
+    let best = 0;
+    for (const alias of aliases) {
+      best = Math.max(best, scoreAliasMatch(h, alias));
+    }
+    if (best >= MIN_ALIAS_SCORE) scored.push({ header: h, score: best });
   }
-  for (const alias of aliases) {
-    const normAlias = normalizeHeader(alias);
-    const fuzzy = headers.find((h) => fuzzyMatch(h, normAlias) && !keys.includes(h));
-    if (fuzzy) keys.push(fuzzy);
-  }
-  return keys;
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .map((s) => s.header);
 }
 
 function sumNumericFields(
@@ -331,12 +495,98 @@ function sumNumericFields(
   return any ? sum : null;
 }
 
-function buildColumnMap(headers: string[], aliases: Record<string, string[]>): Record<string, string | null> {
-  const col: Record<string, string | null> = {};
+type ColumnCandidate = { field: string; header: string; score: number };
+
+function buildColumnMap(
+  headers: string[],
+  aliases: Record<string, string[]>,
+  fileType: ParsedFileType,
+): Record<string, string | null> {
+  const candidates: ColumnCandidate[] = [];
+
   for (const [field, fieldAliases] of Object.entries(aliases)) {
-    col[field] = findColumn(headers, fieldAliases);
+    headers.forEach((h) => {
+      for (const alias of fieldAliases) {
+        const score = scoreAliasMatch(h, alias);
+        if (score >= MIN_ALIAS_SCORE) candidates.push({ field, header: h, score });
+      }
+    });
   }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.header.length !== a.header.length) return b.header.length - a.header.length;
+    return b.field.localeCompare(a.field);
+  });
+
+  const col: Record<string, string | null> = {};
+  const usedHeaders = new Set<string>();
+  const assignedFields = new Set<string>();
+
+  for (const c of candidates) {
+    if (assignedFields.has(c.field)) continue;
+    if (usedHeaders.has(c.header)) continue;
+    col[c.field] = c.header;
+    usedHeaders.add(c.header);
+    assignedFields.add(c.field);
+  }
+
+  // Prefer the most specific header when multiple aliases competed for one field.
+  for (const field of Object.keys(aliases)) {
+    const fieldAliases = aliases[field];
+    if (!fieldAliases?.length) continue;
+    const idx = findBestColumn(headers, fieldAliases);
+    if (idx != null) col[field] = headers[idx];
+  }
+
+  // Transaction files: Issue Amount is the disbursement source; Principal Debit stays separate.
+  if (fileType === "transaction") {
+    const issueHeader = headers.find((h) => scoreAliasMatch(h, "issue amount") >= MIN_ALIAS_SCORE);
+    const principalDrHeader = headers.find(
+      (h) => scoreAliasMatch(h, "principal debit") >= MIN_ALIAS_SCORE,
+    );
+    if (issueHeader) col.disbursedAmount = issueHeader;
+    if (principalDrHeader) col.principalDr = principalDrHeader;
+  }
+
+  for (const field of Object.keys(aliases)) {
+    if (!(field in col)) col[field] = null;
+  }
+
   return col;
+}
+
+function validateFileTypeColumnMap(
+  fileType: ParsedFileType,
+  col: Record<string, string | null>,
+  warnings: string[],
+): void {
+  if (fileType === "balance") {
+    if (!col.loanAccountNumber || !col.closingBalance) {
+      warnings.push(
+        "Balance file validation failed: required columns loan account number and closing balance must be mapped.",
+      );
+    }
+  }
+
+  if (fileType === "transaction") {
+    if (!col.loanAccountNumber || !col.transactionDate) {
+      warnings.push(
+        "Transaction file validation failed: required columns loan account number and transaction date must be mapped.",
+      );
+    }
+    const hasAmount =
+      col.totalAmountReceived ||
+      col.principalCr ||
+      col.principalDr ||
+      col.disbursedAmount ||
+      col.interestRcvd;
+    if (!hasAmount) {
+      warnings.push(
+        "Transaction file validation failed: at least one amount column (received, principal, or disbursement) must be mapped.",
+      );
+    }
+  }
 }
 
 /** Human-readable labels for column audit UI */
@@ -397,8 +647,9 @@ function auditFields(
   aliases: Record<string, string[]>,
   required: readonly string[],
   optional: readonly string[],
+  fileType: ParsedFileType,
 ): GoldLoanColumnAudit {
-  const col = buildColumnMap(headers, aliases);
+  const col = buildColumnMap(headers, aliases, fileType);
   const matched: string[] = [];
   const missing: string[] = [];
   const missingRequired: string[] = [];
@@ -414,16 +665,28 @@ function auditFields(
 
 export function auditGoldLoanColumns(fileType: ParsedFileType, headers: string[]): GoldLoanColumnAudit {
   if (fileType === "balance") {
-    return auditFields(headers, getAliasesForFileType("balance"), BALANCE_REQUIRED, BALANCE_OPTIONAL_KPI);
+    return auditFields(
+      headers,
+      getAliasesForFileType("balance"),
+      BALANCE_REQUIRED,
+      BALANCE_OPTIONAL_KPI,
+      "balance",
+    );
   }
   if (fileType === "transaction") {
-    return auditFields(headers, getAliasesForFileType("transaction"), TRANSACTION_REQUIRED, TRANSACTION_OPTIONAL_KPI);
+    return auditFields(
+      headers,
+      getAliasesForFileType("transaction"),
+      TRANSACTION_REQUIRED,
+      TRANSACTION_OPTIONAL_KPI,
+      "transaction",
+    );
   }
   return { matchedColumns: [], missingColumns: [], missingRequired: [] };
 }
 
 function scoreFileType(headers: string[], fileType: ParsedFileType): number {
-  const col = buildColumnMap(headers, getAliasesForFileType(fileType));
+  const col = buildColumnMap(headers, getAliasesForFileType(fileType), fileType);
   let score = 0;
 
   if (col.loanAccountNumber) score += 2;
@@ -595,7 +858,12 @@ export function parseGoldLoanExcel(buffer: ArrayBuffer, filename?: string): Pars
 
   let fileType = detectFileType(headers, titleHint);
   const fieldAliases = getAliasesForFileType(fileType);
-  const col = buildColumnMap(headers, fieldAliases);
+  const col = buildColumnMap(headers, fieldAliases, fileType);
+
+  if (fileType !== "unknown") {
+    validateFileTypeColumnMap(fileType, col, warnings);
+  }
+
   const collectionCols =
     fileType === "transaction"
       ? findAllColumns(headers, TRANSACTION_ALIASES.totalAmountReceived ?? [])

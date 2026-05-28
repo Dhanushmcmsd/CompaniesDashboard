@@ -38,7 +38,9 @@ describe("MF production headers", () => {
   });
 
   it("maps Sub A/c Number and Tran. Date", () => {
-    expect(findColumn(MF_TXN_HEADERS, ["sub a c number"])).toBe("sub a c number");
+    expect(findColumn(MF_TXN_HEADERS, ["sub a c number", "sub account number"])).toBe(
+      "sub account number",
+    );
     expect(findColumn(MF_TXN_HEADERS, ["tran date"])).toBe("tran date");
     expect(findColumn(MF_TXN_HEADERS, ["trandate"])).toBeNull();
   });
@@ -46,6 +48,8 @@ describe("MF production headers", () => {
   it("maps balance Prin. Closing Bal. and Customer Number", () => {
     expect(findColumn(MF_BAL_HEADERS, ["prin closing bal"])).toBe("prin closing bal");
     expect(findColumn(MF_BAL_HEADERS, ["customer number"])).toBe("customer number");
-    expect(findColumn(MF_BAL_HEADERS, ["sub a c number"])).toBe("sub a c number");
+    expect(findColumn(MF_BAL_HEADERS, ["sub a c number", "sub account number"])).toBe(
+      "sub account number",
+    );
   });
 });

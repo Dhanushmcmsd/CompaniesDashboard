@@ -6,8 +6,11 @@ import {
   findAllColumns,
   findColumn,
   getAliasesForFileType,
+  isAliasMatch,
   normalizeHeader,
+  normalizeTokens,
   parseGoldLoanExcel,
+  scoreAliasMatch,
   trimLeadingEmptyColumns,
 } from "./excel-parser";
 
@@ -111,6 +114,40 @@ describe("normalizeHeader", () => {
     expect(normalizeHeader("Interest and other charges received")).toBe(
       "interest and other charges received",
     );
+  });
+});
+
+describe("scored alias matching — header variants", () => {
+  const balanceAliases = getAliasesForFileType("balance");
+
+  it("canonicalizes tokens for fuzzy alias match", () => {
+    expect(normalizeTokens("Disbursment Dt")).toEqual(
+      expect.arrayContaining(["disbursement", "dt"]),
+    );
+    expect(isAliasMatch("Cust ID", "cust id")).toBe(true);
+    expect(isAliasMatch("Customer Id No", "customer id")).toBe(true);
+  });
+
+  it("matches variant customer and account headers", () => {
+    const headers = normHeaders([
+      "Cust ID",
+      "Customer Id No",
+      "Loan A/c No",
+      "Disbursment Dt",
+      "Closing Balance",
+    ]);
+    expect(findColumn(headers, balanceAliases.customerId)).toBeTruthy();
+    expect(findColumn(headers, balanceAliases.loanAccountNumber)).toBeTruthy();
+    expect(findColumn(headers, balanceAliases.disbursementDate)).toBeTruthy();
+    expect(findColumn(headers, balanceAliases.closingBalance)).toBe("closing balance");
+  });
+
+  it("prefers total interest rate over bare interest rate", () => {
+    const headers = normHeaders(["Interest Rate", "Total Interest Rate"]);
+    expect(scoreAliasMatch(headers[1], "total interest rate")).toBeGreaterThan(
+      scoreAliasMatch(headers[0], "total interest rate"),
+    );
+    expect(findColumn(headers, balanceAliases.interestRate)).toBe("total interest rate");
   });
 });
 
