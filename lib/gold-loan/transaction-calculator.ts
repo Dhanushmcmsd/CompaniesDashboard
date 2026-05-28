@@ -95,35 +95,35 @@ function safe(n: unknown): number {
 
 function toDateKey(date: Date | null): string | null {
   if (!date) return null;
-  const y  = date.getFullYear();
-  const m  = String(date.getMonth() + 1).padStart(2, '0');
-  const d  = String(date.getDate()).padStart(2, '0');
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
 function isToday(date: Date | null, asOnDate: Date): boolean {
   if (!date) return false;
   return (
-    date.getFullYear() === asOnDate.getFullYear() &&
-    date.getMonth()    === asOnDate.getMonth()    &&
-    date.getDate()     === asOnDate.getDate()
+    date.getUTCFullYear() === asOnDate.getUTCFullYear() &&
+    date.getUTCMonth()    === asOnDate.getUTCMonth()    &&
+    date.getUTCDate()     === asOnDate.getUTCDate()
   );
 }
 
 function isMTD(date: Date | null, asOnDate: Date): boolean {
   if (!date) return false;
   return (
-    date.getFullYear() === asOnDate.getFullYear() &&
-    date.getMonth()    === asOnDate.getMonth()    &&
-    date.getDate()     <= asOnDate.getDate()
+    date.getUTCFullYear() === asOnDate.getUTCFullYear() &&
+    date.getUTCMonth()    === asOnDate.getUTCMonth()    &&
+    date.getUTCDate()     <= asOnDate.getUTCDate()
   );
 }
 
 function getYtdStart(asOnDate: Date): Date {
-  const year = asOnDate.getFullYear();
-  const month = asOnDate.getMonth();
+  const year = asOnDate.getUTCFullYear();
+  const month = asOnDate.getUTCMonth();
   const fyStartYear = month < 3 ? year - 1 : year;
-  return new Date(fyStartYear, 3, 1);
+  return new Date(Date.UTC(fyStartYear, 3, 1));
 }
 
 function isYTD(date: Date | null, asOnDate: Date): boolean {

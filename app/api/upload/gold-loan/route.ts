@@ -35,14 +35,15 @@ async function findSnapshotForDate(company: string, snapshotDate: Date) {
 }
 
 function hasTransactionDisbursement(snap: GoldLoanSnapshot | null): snap is GoldLoanSnapshot {
-  return (
-    snap != null &&
-    (
-      snap.newCustomerFromTxn != null ||
-      (snap.newDisbursements != null && snap.newDisbursements > 0) ||
-      (snap.mtdDisbursements != null && snap.mtdDisbursements > 0)
-    )
-  );
+  return snap != null && snap.newCustomerFromTxn != null;
+}
+
+function maxTransactionDate(rows: Record<string, unknown>[]): Date | null {
+  return rows.reduce((max: Date | null, row) => {
+    const d = row.transactionDate instanceof Date ? row.transactionDate : null;
+    if (!d) return max;
+    return !max || d > max ? d : max;
+  }, null);
 }
 
 async function createUploadBatch(data: {
@@ -321,11 +322,15 @@ export async function POST(req: Request) {
             : [];
           const overdueSet = new Set<string>(overdueArr);
 
-          const txnKPIs = calculateKPIsFromTransaction(parsed.rows, overdueSet, snapshotDate);
+          const maxTxnDate = maxTransactionDate(parsed.rows);
+          const effectiveAsOnDate = maxTxnDate ? toDateOnlyUtc(maxTxnDate)! : snapshotDate;
+
+          const txnKPIs = calculateKPIsFromTransaction(parsed.rows, overdueSet, effectiveAsOnDate);
 
           console.log(
             `[upload] ${file.name} → txn KPIs:`,
             `snapshotDate=${formatDate(snapshotDate)}`,
+            `effectiveAsOnDate=${formatDate(effectiveAsOnDate)}`,
             `disbursed=${txnKPIs.totalDisbursed.toFixed(2)}`,
             `collected=${txnKPIs.totalCollected.toFixed(2)}`,
             `overdueCollection=${txnKPIs.overdueCollectionFromTxn.toFixed(2)}`,
@@ -339,7 +344,7 @@ export async function POST(req: Request) {
             parsed.rows,
             [],
             matchingSnapshot?.totalOverdue ?? 0,
-            snapshotDate,
+            effectiveAsOnDate,
           );
 
           const branchDisbForSnapshot = fullTxnKPIs.branchDisbursements.map((b) => ({

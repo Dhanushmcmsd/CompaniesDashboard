@@ -160,9 +160,9 @@ function toDate(value: unknown): Date | null {
 function isSameDay(date: Date | null, other: Date): boolean {
   if (!date) return false
   return (
-    date.getFullYear() === other.getFullYear() &&
-    date.getMonth()    === other.getMonth() &&
-    date.getDate()     === other.getDate()
+    date.getUTCFullYear() === other.getUTCFullYear() &&
+    date.getUTCMonth()    === other.getUTCMonth() &&
+    date.getUTCDate()     === other.getUTCDate()
   )
 }
 
@@ -173,17 +173,17 @@ function isToday(date: Date | null): boolean {
 function isMTD(date: Date | null, asOnDate: Date): boolean {
   if (!date) return false
   return (
-    date.getFullYear() === asOnDate.getFullYear() &&
-    date.getMonth()    === asOnDate.getMonth() &&
-    date.getDate()     <= asOnDate.getDate()
+    date.getUTCFullYear() === asOnDate.getUTCFullYear() &&
+    date.getUTCMonth()    === asOnDate.getUTCMonth() &&
+    date.getUTCDate()     <= asOnDate.getUTCDate()
   )
 }
 
 function getYtdStart(asOnDate: Date): Date {
-  const month = asOnDate.getMonth()
-  const year = asOnDate.getFullYear()
+  const month = asOnDate.getUTCMonth()
+  const year = asOnDate.getUTCFullYear()
   const fyStartYear = month < 3 ? year - 1 : year
-  return new Date(fyStartYear, 3, 1)
+  return new Date(Date.UTC(fyStartYear, 3, 1))
 }
 
 function isYTD(date: Date | null, asOnDate: Date): boolean {
