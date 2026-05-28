@@ -429,7 +429,7 @@ export function calculateKPIs(
     const isCurrentFY = isYTD(date, asOnDate)
     disbMap.set(b, {
       ftd: curr.ftd + (isSameDay(date, asOnDate) ? amt : 0),
-      mtd: curr.mtd + (isCurrentFY ? amt : 0),
+      mtd: curr.mtd + (isMTD(date, asOnDate) ? amt : 0),
       ytd: curr.ytd + (isCurrentFY ? amt : 0),
     })
   }
